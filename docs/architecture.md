@@ -158,9 +158,10 @@ stateDiagram-v2
 
 ## Animation states
 
-`CharacterAnimator` plays the preset clips baked into each rigged Tripo model. Looping states keep
-playing until the state changes. One-shot actions play once and then return to the looping state.
-A missing clip falls back to a procedural effect or to the nearest clip.
+`CharacterAnimator` plays the clips baked into each repaired Tripo character
+(`tools/fix_character_rig.py`). Looping states cross-fade over 0.2 s and keep playing until the state
+changes. One-shot actions snap in over 0.06 s, play once and then return to the looping state. A
+missing clip falls back to a procedural effect or to the nearest clip.
 
 ```mermaid
 stateDiagram-v2
@@ -175,9 +176,9 @@ stateDiagram-v2
     Hurt --> Idle: clip finished
 ```
 
-Each model has its own set of clips. The female cultivator has idle, walk, run, slash and hurt.
-The elder has idle, walk and greet. The wolf has only walk, so it holds the first frame of that
-cycle while idle and flinches or lunges procedurally when hit or striking.
+Every humanoid has idle, walk, run, slash, hurt and greet. The wolf has idle, walk, run, slash (a
+bite) and hurt. The player runs whenever it moves, the beast runs while it chases, and Elder Wen
+and Disciple Lin play greet when talked to. No model needs the procedural fallbacks any more.
 
 ## Cultivation progression
 
@@ -202,10 +203,11 @@ sequenceDiagram
     participant H as Hud
 
     Note over P,B: Beasts chase the player within 11 m
-    B->>P: move towards player
-    B->>P: take_damage(8) every 1.4 s within 2 m
-    P->>P: attack() on J or left click, 0.45 s cooldown
-    P->>B: take_damage(25) if inside the 2.6 m cone
+    B->>P: run towards player
+    B->>B: bite clip every 1.4 s within 2 m
+    B->>P: take_damage(8) 0.25 s later, if still within 2.8 m
+    P->>P: attack() on J or left click, 0.45 s cooldown, slash clip starts
+    P->>B: take_damage(25) 0.27 s later, if inside the 2.6 m cone
     B-->>M: died(40 qi)
     M->>M: count the kill, grant qi
     M->>H: show_message("Spirit beast slain")
@@ -234,8 +236,21 @@ Bindings are registered in code by `InputSetup` so they stay readable and need n
 
 Tripo exports vary in scale and origin. `ModelUtils.fit_to_height` measures the union of the
 model's mesh bounds, scales it uniformly to the requested height, and sits it on the ground.
-Solid props use the same measured bounds for a box collider. Visual front faces are aligned
-with `ModelUtils.FORWARD_OFFSET`.
+Solid props use the same measured bounds for a box collider.
+
+Every character model faces +Z, the glTF front, because `tools/fix_character_rig.py` turns them
+that way in the file. The game therefore needs no per-model correction: a character's visual is
+rotated by the yaw of its heading and nothing else (`ModelUtils.FORWARD_OFFSET` is `0`). Tripo's own
+humanoids faced +X and its wolf +Z, which is why they once walked sideways or backwards.
+
+```mermaid
+flowchart LR
+    keys["W A S D"] --> dir["direction on the XZ plane<br/>relative to the camera yaw"]
+    dir --> heading["heading = atan2(x, z)"]
+    heading --> yaw["visual.rotation.y<br/>lerped at 12 per second"]
+    yaw --> front["model front +Z<br/>ends up along the direction"]
+    beast["SpiritBeast"] -- "yaw_towards(to_player)" --> yaw
+```
 
 GLB textures are embedded in the GLB. Godot's import setting `gltf/embedded_image_handling=2`
 compresses them into the imported scene, so no texture files are extracted next to the models.
@@ -276,10 +291,17 @@ flowchart LR
     push["Push or pull request"] --> lint["lint job<br/>gdlint + gdformat --check"]
     push --> test["test job<br/>Godot 4.7.2 headless"]
     test --> import["godot --import"]
-    import --> run["run_tests.gd<br/>cultivation, quest, animation,<br/>model fitting, scene boot"]
+    import --> run["run_tests.gd<br/>cultivation, quest, animation, model fitting,<br/>character rigs, scene boot, walking, hall"]
     lint --> result{"All checks pass?"}
     run --> result
 ```
+
+The character rig checks load each character GLB and check its clip names and lengths, that it
+faces +Z, that no vertex is pinned to the dummy `neutral_bone`, and that no triangle stretches past
+6x in any of three poses of every clip. That last check skins the mesh on the CPU, so it catches
+the spikes and smeared textures that broken skin weights cause, which a screenshot would only show
+by eye. A walking check holds each movement key in turn and asserts that the cultivator ends up
+facing the way it moves.
 
 Run the suite locally with:
 

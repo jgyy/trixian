@@ -16,6 +16,8 @@ signal prompt_changed(text: String)
 @export var attack_damage := 25.0
 @export var attack_range := 2.6
 @export var attack_cooldown := 0.45
+## Seconds from the key press to the sword landing, which is when the slash clip's cut connects.
+@export var strike_delay := 0.27
 @export var meditation_qi_per_second := 12.0
 @export var interact_range := 3.0
 @export var min_zoom := 1.8
@@ -31,7 +33,7 @@ var camera: Camera3D
 var animator: CharacterAnimator
 
 var _spawn_position: Vector3
-var _heading := 0.0
+var _heading := PI
 var _cooldown := 0.0
 var _prompt := ""
 var _visual: Node3D
@@ -119,13 +121,18 @@ func _physics_process(delta: float) -> void:
 	_update_prompt()
 
 
-## Sword strike: damages every spirit beast in a cone in front of the cultivator.
+## Sword strike: swings now and damages every spirit beast in a cone in front of the cultivator
+## when the blade lands, [member strike_delay] seconds later.
 func attack() -> void:
 	if _cooldown > 0.0 or is_meditating:
 		return
 	_cooldown = attack_cooldown
 	if not animator.play_action(&"slash"):
 		_play_swing()
+	get_tree().create_timer(strike_delay).timeout.connect(_land_strike)
+
+
+func _land_strike() -> void:
 	var facing := Vector3(sin(_heading), 0.0, cos(_heading))
 	for node in get_tree().get_nodes_in_group("enemies"):
 		var enemy := node as SpiritBeast
@@ -135,6 +142,11 @@ func attack() -> void:
 		to_enemy.y = 0.0
 		if to_enemy.length() <= attack_range and facing.dot(to_enemy.normalized()) > 0.3:
 			enemy.take_damage(attack_damage)
+
+
+## The direction the model's front points in, on the world axes.
+func facing() -> Vector3:
+	return _visual.global_transform.basis * Vector3.BACK
 
 
 func take_damage(amount: float) -> void:
@@ -219,6 +231,7 @@ func _play_swing() -> void:
 
 func _build_body() -> void:
 	_visual = Node3D.new()
+	_visual.rotation.y = _heading + ModelUtils.FORWARD_OFFSET
 	add_child(_visual)
 	var model := model_scene.instantiate() as Node3D
 	_visual.add_child(model)

@@ -1,14 +1,17 @@
 class_name CharacterAnimator
 extends RefCounted
 
-## Drives the preset clips baked into a rigged Tripo model.
+## Drives the clips baked into a repaired Tripo character (tools/fix_character_rig.py).
 ##
 ## Looping states (idle, walk, run) keep playing until another state is requested. One-shot
 ## actions (slash, hurt, greet) play once and then resume the looping state that was active.
 ## Clip lookup is forgiving: a state matches a clip whose name ends with it, so "Armature|walk"
-## and "walk" both count. Models without a clip for a state fall back to the closest one.
+## and "walk" both count. A model without a run clip walks instead.
 
+## Looping states cross-fade slowly so a change of gait is smooth. Actions snap in quickly,
+## because a sword strike that lags the key press feels broken.
 const BLEND_TIME := 0.2
+const ACTION_BLEND_TIME := 0.06
 const LOOPING_STATES := ["idle", "walk", "run"]
 
 var _player: AnimationPlayer
@@ -49,8 +52,7 @@ func play_action(state: StringName) -> bool:
 	if _player == null or clip == &"":
 		return false
 	_action_playing = true
-	_player.speed_scale = 1.0
-	_player.play(clip, BLEND_TIME)
+	_player.play(clip, ACTION_BLEND_TIME)
 	return true
 
 
@@ -60,22 +62,14 @@ func is_action_playing() -> bool:
 
 func _play_loop(state: StringName) -> void:
 	var clip := _resolve(state)
-	var freeze := false
 	if clip == &"" and state == &"run":
 		clip = _resolve(&"walk")
-	if clip == &"" and state == &"idle":
-		# Models without an idle clip hold the first frame of their walk cycle instead.
-		clip = _resolve(&"walk")
-		freeze = clip != &""
 	if clip == &"":
 		return
-	_player.speed_scale = 0.0 if freeze else 1.0
 	# Only restart the clip when it changes, otherwise it would rewind every physics frame.
 	if _player.current_animation == String(clip) and _player.is_playing():
 		return
 	_player.play(clip, BLEND_TIME)
-	if freeze:
-		_player.seek(0.0, true)
 
 
 func _on_animation_finished(_clip_name: StringName) -> void:

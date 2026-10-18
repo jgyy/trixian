@@ -8,6 +8,10 @@
 #   tools/generate_assets.sh                # generate every asset
 #   tools/generate_assets.sh elder          # generate a single asset
 #   DRY_RUN=1 tools/generate_assets.sh      # validate every prompt; spends no credits
+#
+# The GLBs it writes are Tripo's raw output. Before they are committed they go through the offline
+# repair steps in docs/asset-pipeline.md: rebake_textures.py, then for the characters
+# tune_character_materials.py and fix_character_rig.py.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,8 +30,9 @@ ASSETS=(
 	"jade_rock|glowing jade spirit stone, green crystal rock formation emitting qi energy, game prop|"
 )
 
-# Characters that are rigged and animated. Biped characters use the v1.0 rig, whose
-# preset:biped:* clips are the ones the game plays; the quadruped wolf uses the default v2.0 rig.
+# Characters that are rigged and animated. Biped characters use the v1.0 rig and the quadruped
+# wolf the default v2.0 rig. The preset clips are replaced afterwards by fix_character_rig.py,
+# which authors the clips the game plays; Tripo's retarget step is what exports the animated GLB.
 declare -A RIG_TYPE=(
 	[female_cultivator]=biped
 	[hero]=biped

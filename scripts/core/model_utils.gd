@@ -3,8 +3,9 @@ extends RefCounted
 
 ## Helpers for Tripo generated models, whose native scale and origin differ per asset.
 
-## Yaw correction applied to visuals so that a model's front faces its heading.
-const FORWARD_OFFSET := PI
+## Yaw correction applied to visuals so that a model's front faces its heading. Every character
+## model is repaired to face +Z, the glTF front (tools/fix_character_rig.py), so none is needed.
+const FORWARD_OFFSET := 0.0
 
 
 ## Scales [param root] uniformly so its visible height equals [param target_height],

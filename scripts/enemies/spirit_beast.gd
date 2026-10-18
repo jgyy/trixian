@@ -12,6 +12,8 @@ signal died(qi_reward: float)
 @export var attack_range := 2.0
 @export var attack_damage := 8.0
 @export var attack_cooldown := 1.4
+## Seconds from the start of the bite to the jaws closing.
+@export var bite_delay := 0.25
 @export var qi_reward := 40.0
 @export var turn_speed := 8.0
 
@@ -68,12 +70,27 @@ func _physics_process(delta: float) -> void:
 			elif _cooldown <= 0.0:
 				_cooldown = attack_cooldown
 				_lunge()
-				_player.take_damage(attack_damage)
+				get_tree().create_timer(bite_delay).timeout.connect(_land_bite)
 
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 	move_and_slide()
-	animator.play(&"walk" if horizontal.length() > 0.1 else &"idle")
+	animator.play(&"run" if horizontal.length() > 0.1 else &"idle")
+
+
+## The bite hurts only if the cultivator is still within a lunge's reach when the jaws close.
+func _land_bite() -> void:
+	if _dead or not is_instance_valid(_player):
+		return
+	var to_player := _player.global_position - global_position
+	to_player.y = 0.0
+	if to_player.length() <= attack_range * 1.4:
+		_player.take_damage(attack_damage)
+
+
+## The direction the model's front points in, on the world axes.
+func facing() -> Vector3:
+	return _visual.global_transform.basis * Vector3.BACK
 
 
 func take_damage(amount: float) -> void:
