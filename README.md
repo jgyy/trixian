@@ -1,8 +1,9 @@
 # Xianxia Ascension
 
 A 3D xianxia cultivation prototype built in Godot 4.7. The valley, buildings, spirit stones and
-characters are generated from text prompts with the Tripo CLI. The characters are rigged and carry
-preset animations, and you play as a female cultivator.
+characters are generated from text prompts with the Tripo CLI. The characters are rigged, and their
+facing, skin weights and animation clips are repaired offline so they walk the right way, keep their
+textures while they move and play clips that fit a game. You play as a female cultivator.
 
 ![Valley overview](docs/screenshots/valley_overview.png)
 
@@ -20,14 +21,30 @@ preset animations, and you play as a female cultivator.
 | --- |
 | ![Meditation](docs/screenshots/meditation_breakthrough.png) |
 
+| Running | Sword strike |
+| --- | --- |
+| ![Running](docs/screenshots/player_running.png) | ![Sword strike](docs/screenshots/player_slash.png) |
+
+| A demon wolf charging the cultivator |
+| --- |
+| ![Wolf charge](docs/screenshots/wolf_charge.png) |
+
+### Animation, before and after the rig repair
+
+![Tripo's walk against the repaired run](docs/rig-fix/before_after_player.png)
+
+Top: Tripo's own `walk`, in profile and torn by its skin weights. Bottom: the repaired `run`. The
+[asset pipeline](docs/asset-pipeline.md#rig-repair) explains what was wrong and how it was fixed.
+
 ## Features
 
 - **Explore** the Azure Cloud Sect valley in third person, with a mouse-look camera and a
   scroll-wheel zoom.
 - **Cultivate.** Meditate to gather qi and break through five realms. Each breakthrough costs
   twice the qi of the one before.
-- **Fight** demon wolves with sword strikes that hit in a cone in front of you. Wolves flinch when
-  hit and lunge when they strike.
+- **Fight** demon wolves with sword strikes that hit in a cone in front of you. The cut lands when
+  the blade does, a quarter of a second after the key press. Wolves charge, flinch when hit and
+  bite.
 - **Quest.** Elder Wen sends you after two wolves and rewards you with qi when you return. Wolves
   slain before you accept the quest count towards it.
 - **Meet the sect.** Disciple Lin at the gate shares advice when you talk to her.
@@ -61,7 +78,7 @@ godot --path .                       # launch the game
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . --script res://tests/run_tests.gd   # 45 headless checks
+godot --headless --path . --script res://tests/run_tests.gd   # 93 headless checks
 pip install "gdtoolkit==4.5.0"
 gdlint scripts tests tools
 gdformat --check scripts tests tools
@@ -76,7 +93,9 @@ CI runs the same lint and test steps on every pull request. The workflow is in
 animation steps. `tools/rebake_textures.py` then re-unwraps each model's UVs and moves its textures
 into the new layout, which removes the stretched texture islands Tripo's own unwrap produces.
 `tools/tune_character_materials.py` sets the characters' material factors so they read as cloth and
-skin rather than clay, and `tools/carve_hall_doorway.py` opens the sect hall's east doorway. See
+skin rather than clay, and `tools/fix_character_rig.py` turns each character to face +Z, re-skins
+its pinned vertices, smooths the weights that tear and replaces Tripo's preset clips with short
+authored ones. `tools/carve_hall_doorway.py` opens the sect hall's east doorway. See
 [docs/asset-pipeline.md](docs/asset-pipeline.md) for the prompts, credit costs, the rebake steps
 and the 2048 px texture export.
 

@@ -3,7 +3,8 @@
 Every 3D model in `assets/models/` was generated with the Tripo CLI from a text prompt. The
 full-size GLBs that Tripo returns are about 45 MB each because of their 4K-class textures, so
 each one is re-exported with 2048 px textures and at most 30,000 faces before it is committed.
-The characters are also rigged and given preset animations.
+The characters are also rigged. Tripo's rigs and preset clips are not usable as they come, so a
+repair step fixes their facing, skin weights and animation (see [Rig repair](#rig-repair)).
 
 ## Flow
 
@@ -33,6 +34,23 @@ sequenceDiagram
     Repo->>Godot: import, embeds textures in the GLB
     Godot-->>Dev: preload() in main.gd, sized by ModelUtils
 ```
+
+## After Tripo: the order of the repair steps
+
+Each Tripo GLB goes through up to three offline steps before it is committed. They all read and
+write plain GLBs and need no account.
+
+```mermaid
+flowchart LR
+    tripo["Tripo GLB<br/>rig, preset clips, 2048 px"] --> rebake["rebake_textures.py<br/>re-unwrap UVs, move maps"]
+    rebake --> tune["tune_character_materials.py<br/>roughness 0.55, metallic 0"]
+    tune --> fix["fix_character_rig.py<br/>facing, bind pose, weights, clips"]
+    fix --> repo["assets/models/NAME.glb"]
+    rebake -. props .-> repo
+```
+
+Props only need the rebake. Characters need all three, in this order, and the rig repair refuses to
+run twice on the same file.
 
 ## Regenerating
 
@@ -127,15 +145,127 @@ characters were tuned this way. Props and the hall keep their Tripo factors.
 Left: Tripo's factors. Right: roughness 0.55 and metallic 0. Hair and the robe catch light and read
 as cloth.
 
-## Rigging and animation
+## Rig repair
 
-- Biped characters are rigged with the v1.0 rig (`-p model=rig-v1.0`). Its `preset:biped:*`
-  clips are the ones the game uses: `idle`, `walk`, `run`, `slash`, `hurt` and `greet_01`.
-- The wolf is quadruped and uses the default v2.0 rig. Its only usable preset here is
-  `preset:quadruped:walk`. The v2.0 `idle`, `run`, `slash` and `hurt` presets were rejected for
-  quadruped rigs, so the game freezes the walk cycle while the wolf is idle and flinches or lunges
-  procedurally.
-- Animations are baked in place (`--animate-in-place`), because the game drives movement.
+The first version of the game played Tripo's rigs and preset clips as they came. In the game the
+characters walked sideways or backwards, their textures smeared and tore as they moved, and none of
+the clips fitted: the idle ran 15 s, the hurt 14 s and the slash 6.5 s. Blender and a CPU skinning
+check of the GLBs showed four separate faults in the files themselves, not in the game code.
+
+| Fault | What it looked like | Cause in the GLB |
+| --- | --- | --- |
+| Facing | Characters walked sideways, wolves walked backwards | Humanoids face +X and the wolf faces +Z, while the game assumed one front for all of them |
+| Pinned vertices | Long shards trailing behind a moving body | 77 to 115 vertices per character are bound 100% to `neutral_bone`, a dummy joint that never moves |
+| Bridged cloth | Skirts, sleeves and hair stretched into spikes and smeared the texture | Cloth that touches another limb in the T-pose is bound to both limbs, so the triangles between them are pulled apart |
+| Preset clips | Long, odd, full-body routines (a seated "hurt") | Tripo's presets are 15 s idles, 14 s hurts and 6.5 s slashes, and each is a different routine |
+
+![Tripo's walk against the repaired run](rig-fix/before_after_player.png)
+
+Top row: Tripo's `walk` as imported, in profile and torn by its skin weights. Bottom row: the repaired
+`run`, facing the camera.
+
+![Tripo's wolf walk against the repaired run](rig-fix/before_after_wolf.png)
+
+Top row: Tripo's wolf walk, with shards under the paws. Bottom row: the repaired run.
+
+`tools/fix_character_rig.py` repairs a character GLB in five steps. It edits the glTF JSON and the
+vertex buffers directly, so the textures, UVs and material are copied through byte for byte.
+
+```mermaid
+flowchart TD
+    in["Rebaked Tripo GLB"] --> face["1. Facing<br/>find the front from the toes (or head),<br/>yaw the Armature node to +Z"]
+    face --> orphans["2. Orphans<br/>vertices bound to neutral_bone take the<br/>weights of their skinned neighbours"]
+    orphans --> author["3. Author clips<br/>aim bones at world directions,<br/>two-bone IK for the feet"]
+    author --> stretch["4. Smooth weights<br/>skin through every pose, find triangles<br/>stretched past 2x, smooth the weights there"]
+    stretch --> check{"Any triangle<br/>still over 2x?"}
+    check -- yes, up to 40 rounds --> stretch
+    check -- no or rounds spent --> cut["Drop triangles still over 4x"]
+    cut --> bind["5. Re-bind<br/>skin the mesh into the stand pose,<br/>new inverse bind matrices"]
+    bind --> out["Repaired GLB<br/>new weights, rest pose, clips"]
+```
+
+1. **Facing.** The front is found from the toe bones, or from the head and tail of the wolf, and
+   snapped to an axis. The `Armature` node gets a yaw so every character faces +Z, the glTF front,
+   and `ModelUtils.FORWARD_OFFSET` is now `0`. The nodes are turned, not the vertices.
+2. **Orphans.** Each vertex pinned to `neutral_bone` takes the weights of its nearest skinned
+   neighbours over the mesh, so it moves with the body it belongs to.
+3. **Clips.** Tripo's bind poses are not clean: the knees are bent, one foot is ahead of the other
+   and every bone has its own local axes, so fixed joint angles would bend each model differently.
+   `rig_poser.Poser` aims each bone's own Y axis at a world direction instead, and solves the legs
+   with two-bone IK so the feet stay planted. The clips are in `rig_clips.py`.
+4. **Weights.** The mesh is skinned through every pose of every clip. Any triangle whose edge grows
+   past 2x its bind length gets its weights blended with its neighbours, and the check repeats.
+   What is still past 4x afterwards is dropped from the index buffer: 14 to 236 triangles of about
+   37,000 per character. No holes show in the renders.
+5. **Bind pose.** The mesh is skinned into the relaxed stand pose once and bound there, so each clip
+   is a small move away from the bind pose instead of a swing from a T-pose. Arms that hang from a
+   T-pose are the hardest thing for skinning, so this removes the largest single source of stretch.
+
+```bash
+pip install numpy scipy
+tools/fix_character_rig.py assets/models/hero.glb /tmp/hero.glb              # biped
+tools/fix_character_rig.py assets/models/demon_wolf.glb /tmp/wolf.glb --kind quadruped
+```
+
+It takes about a minute per character. The GLB is marked once repaired, and `--force` overrides
+that.
+
+### Measured result
+
+The CI test (`tests/run_tests.gd`) skins every character on the CPU in the same way and measures
+the largest ratio of a posed triangle edge to its bind length. Same method, six poses of every clip,
+on the Tripo models before the repair and the repaired ones now:
+
+| Model | Triangles over 5x in the worst pose, before | After | Worst edge, before | After | Longest clip, before | After |
+| --- | --- | --- | --- | --- | --- | --- |
+| `female_cultivator` | 471 (1.25%) | 0 | 248x | 5x | 15.4 s | 3.2 s |
+| `hero` | 515 (1.41%) | 0 | 246x | 4x | 15.4 s | 3.2 s |
+| `elder` | 517 (1.41%) | 0 | 243x | 5x | 15.4 s | 3.2 s |
+| `demon_wolf` | 1363 (3.57%) | 0 | 213x | 4x | 2.6 s | 2.4 s |
+
+### Clips
+
+All clips are in the model's own units, about 1 unit tall, and the game scales a model to 1.8 m. Every
+loop starts and ends on the same pose, and every pose is built around the stand pose, so the clips
+blend into each other.
+
+| Clip | Biped length | Wolf length | What it is |
+| --- | --- | --- | --- |
+| `idle` | 3.2 s | 2.4 s | Breathing, weight shift, head turn. The wolf also sways its tail |
+| `walk` | 1.0 s | 0.9 s | An IK walk with the feet planted. The wolf trots on diagonal pairs of legs |
+| `run` | 0.56 s | 0.5 s | Matches the game's 5.5 m/s (the clip covers about 5.4 m/s), with a forward lean. The wolf bounds |
+| `slash` | 0.6 s | 0.55 s | A right-handed diagonal cut, with the blade landing at 0.27 s. The wolf bites |
+| `hurt` | 0.5 s | 0.45 s | A short recoil that settles |
+| `greet` | 1.8 s | none | A fist-and-palm salute with a bow |
+
+![Player clips](rig-fix/player_clips.png)
+
+Rows: idle, run, slash, hurt, greet.
+
+![Wolf clips](rig-fix/wolf_clips.png)
+
+Rows: idle, run, slash (the bite), hurt.
+
+![Disciple Lin and Elder Wen](rig-fix/npc_clips.png)
+
+Rows: Lin's idle and slash, Elder Wen's idle and greet.
+
+The contact sheets come from `tools/capture_clip_sheet.gd`, which can also load an old GLB from a
+path, so a before and after sit in the same sheet:
+
+```bash
+godot --path . --script res://tools/capture_clip_sheet.gd -- sheet.png front \
+    "/tmp/old/hero.glb|walk|0.2,0.7,1.2,1.7" "res://assets/models/hero.glb|run|0.0,0.14,0.28,0.42"
+```
+
+## Rigging
+
+- Biped characters are rigged with the v1.0 rig (`-p model=rig-v1.0`), the wolf with the default
+  v2.0 quadruped rig. Tripo's preset clips are still requested, because the retarget step is what
+  produces the animated GLB, but `fix_character_rig.py` replaces them.
+- Tripo's quadruped v2.0 rig names its bones by chain (`0_Left_Limb_3`), not by role, and the names
+  do not match the legs. `rig_clips.py` maps the four legs, the spine, the head and the tail by
+  their position.
 - Each retarget call accepts at most five animations, and the CLI bills per animation.
 
 ## Assets
@@ -149,6 +279,9 @@ as cloth.
 | `sect_hall` | Scenery, walk-in (18 m tall) | sect temple hall, curved tile roof, red pillars | gen `b79bd7b5`, convert `c7c2c3ef` | 20 + 10 |
 | `spirit_tree` | Scenery | ancient spirit peach tree, pink blossoms | gen `757f9ef2`, convert `e71edc2f` | 20 + 10 |
 | `jade_rock` | Scenery, solid, glowing | glowing jade spirit stone emitting qi | gen `7bfb9e5e`, convert `98751661` | 20 + 10 |
+
+The clip lists in the character rows are the presets requested from Tripo. `fix_character_rig.py`
+replaces them with the clips described under [Rig repair](#rig-repair).
 
 The first hero was exported as FBX with the `game-pc` preset (task `0655aeaa`, 5 credits). That
 export was discarded in favour of GLB, so its cost is not included in the table. The 1024 px
@@ -183,10 +316,11 @@ Tripo's own renders of each generated mesh:
   the model rather than in code, so the visible wall and its collision disappear together. The
   constants at the top of `main.gd` were measured from the carved model at 18 m, so re-export the
   hall with the same fit height or measure the new one.
-- Each model's front is aligned with `ModelUtils.FORWARD_OFFSET`. Change that constant if a
-  new model faces the wrong way.
+- Every character faces +Z after the rig repair, so `ModelUtils.FORWARD_OFFSET` is `0`. A model
+  that comes out of Tripo facing another way is turned by `fix_character_rig.py`, not in code.
+  Prop and scenery models are not repaired and are never turned by the game.
 - `CharacterAnimator` looks up clips by name, ignoring any prefix. A clip named `preset:biped:walk`
-  or `Armature|walk` both match `walk`.
+  or `Armature|walk` both match `walk`, and a model without a run clip walks instead.
 - Textures are embedded in each GLB. The import setting `gltf/embedded_image_handling=2` keeps
   them inside the imported scene, so Godot does not extract texture files next to the models. An
   extracted texture that is deleted leaves a stale UID in the import cache, which produces the
