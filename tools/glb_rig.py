@@ -224,6 +224,11 @@ class Rig:
         attrs = primitive["attributes"]
         self.positions = read_accessor(doc, binary, attrs["POSITION"]).astype(np.float64)
         self.normals = read_accessor(doc, binary, attrs["NORMAL"]).astype(np.float64)
+        self.tangents = (
+            read_accessor(doc, binary, attrs["TANGENT"]).astype(np.float64)
+            if "TANGENT" in attrs
+            else None
+        )
         self.skin_joints = read_accessor(doc, binary, attrs["JOINTS_0"]).astype(np.int64)
         self.skin_weights = read_accessor(doc, binary, attrs["WEIGHTS_0"]).astype(np.float64)
         if self.skin_weights.max() > 1.5:

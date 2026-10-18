@@ -3,7 +3,8 @@
 A 3D xianxia cultivation prototype built in Godot 4.7. The valley, buildings, spirit stones and
 characters are generated from text prompts with the Tripo CLI. The characters are rigged, and their
 facing, skin weights and animation clips are repaired offline so they walk the right way, keep their
-textures while they move and play clips that fit a game. You play as a female cultivator.
+textures while they move and play clips that fit a game. Their textures are baked from Tripo's
+full-size 4096 px model, with extra room for the head, so faces stay sharp up close. You play as a female cultivator.
 
 ![Valley overview](docs/screenshots/valley_overview.png)
 
@@ -28,6 +29,16 @@ textures while they move and play clips that fit a game. You play as a female cu
 | A demon wolf charging the cultivator |
 | --- |
 | ![Wolf charge](docs/screenshots/wolf_charge.png) |
+
+### Faces, before and after the texture bake
+
+![The cultivator's face in the valley, before and after](docs/texture-fix/in_game_face.png)
+
+Left: the 2048 px export, where the face was a 100 px patch of the atlas. Right: baked from Tripo's
+full model into a layout that gives the head nine times the area per unit of surface. The
+[asset pipeline](docs/asset-pipeline.md#sharp-faces-bake-from-the-full-model) explains why the old
+face was soft and how the bake works. The new shot is `player_face_closeup.png`, taken with a
+camera closer than the game's zoom goes.
 
 ### Animation, before and after the rig repair
 
@@ -90,19 +101,22 @@ CI runs the same lint and test steps on every pull request. The workflow is in
 ## Generating assets with Tripo
 
 `tools/generate_assets.sh` regenerates the models with the Tripo CLI, including the rigging and
-animation steps. `tools/rebake_textures.py` then re-unwraps each model's UVs and moves its textures
-into the new layout, which removes the stretched texture islands Tripo's own unwrap produces.
+animation steps. `tools/rebake_textures.py` then re-unwraps each model's UVs, which removes the
+stretched texture islands Tripo's own unwrap produces. For the characters it also gives the head
+nine times the texture area and bakes every map from Tripo's full-size 4096 px model in Blender
+(`tools/bake_hires_maps.py`), so faces stay sharp when you zoom in. `tools/repair_character.sh NAME`
+runs the whole character chain.
 `tools/tune_character_materials.py` sets the characters' material factors so they read as cloth and
 skin rather than clay, and `tools/fix_character_rig.py` turns each character to face +Z, re-skins
 its pinned vertices, smooths the weights that tear and replaces Tripo's preset clips with short
 authored ones. `tools/carve_hall_doorway.py` opens the sect hall's east doorway. See
 [docs/asset-pipeline.md](docs/asset-pipeline.md) for the prompts, credit costs, the rebake steps
-and the 2048 px texture export.
+and the texture bake.
 
 ## Project layout
 
 ```
-assets/models/       Tripo GLB models (rigged, 2048 px textures) and their Godot import sidecars
+assets/models/       Tripo GLB models (rigged, 4096 px character textures) and their Godot import sidecars
 scenes/main.tscn     root scene; builds the valley from code
 scripts/core/        cultivation rules, quest rules, animation driver, model fitting, input
 scripts/player/      the cultivator (player)
