@@ -10,6 +10,7 @@ const OUTPUT_DIR := "res://docs/screenshots"
 const SHOTS: Array = [
 	["valley_overview", "_setup_overview", 30],
 	["third_person_spawn", "_setup_spawn", 30],
+	["player_face_closeup", "_setup_face", 40],
 	["sect_hall", "_setup_hall", 30],
 	["sect_hall_entrance", "_setup_hall_entrance", 30],
 	["meditation_breakthrough", "_setup_meditation", 30],
@@ -20,6 +21,10 @@ const SHOTS: Array = [
 const WOLF_STAGE := Vector3(12.0, 0.0, 12.0)
 ## Where the side-on camera sits, relative to the middle of the cultivator and the wolf.
 const FIGHT_CAMERA_OFFSET := Vector3(4.5, 1.2, 0.0)
+## How far above the head joint the middle of the face is, and how far in front of it the
+## close-up camera stands, in metres.
+const FACE_LIFT := 0.06
+const FACE_DISTANCE := 0.75
 
 var _main: Node3D
 var _free_camera: Camera3D
@@ -96,6 +101,25 @@ func _setup_slash() -> void:
 	var player := _find_player()
 	player.camera.make_current()
 	player.attack()
+
+
+## A free camera in front of the cultivator's face, closer than the game's zoom allows, to show
+## how sharp the face texture is in the valley's light.
+func _setup_face() -> void:
+	var player := _find_player()
+	player.is_meditating = false
+	var skeleton := player.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var model := skeleton.owner if skeleton.owner != null else skeleton.get_parent_node_3d()
+	var head := Vector3.ZERO
+	for bone in skeleton.get_bone_count():
+		if skeleton.get_bone_name(bone).to_lower().contains("head"):
+			head = skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
+	# The model faces +Z in its own space, so its front is its Z axis in the world.
+	var front := (model as Node3D).global_transform.basis.z.normalized()
+	var face := head + Vector3.UP * FACE_LIFT
+	_free_camera.make_current()
+	_free_camera.fov = 30.0
+	_free_camera.look_at_from_position(face + front * FACE_DISTANCE + Vector3.UP * 0.03, face)
 
 
 ## Drops the cultivator in front of a wolf, which charges and bites. A side-on camera follows

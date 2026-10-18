@@ -25,6 +25,11 @@ const MAX_CLIP_SECONDS := {
 ## than STRETCH_FLOOR count as that long, so zero-area slivers do not read as infinite.
 const MAX_STRETCH := 6.0
 const STRETCH_FLOOR := 0.004
+## The albedo is baked from Tripo's 4096 px model; the export at 2048 px blurred every face.
+const MIN_ALBEDO_SIZE := 4096
+## The head gets its own share of the atlas. Texels per unit of surface on the head must be at
+## least this many times those on the body, or faces go soft again.
+const MIN_HEAD_DENSITY_RATIO := 4.0
 
 ## Action, then the world direction the cultivator should end up facing while it is held.
 const WALK_DIRECTIONS := [
@@ -221,6 +226,7 @@ func _check_rig(label: String, scene: PackedScene, clips: Array[String]) -> void
 
 	_check(_faces_forward(skeleton), "%s faces +Z, the way the game turns it" % label)
 	var arrays := mesh_instance.mesh.surface_get_arrays(0)
+	_check_textures(label, mesh_instance, arrays)
 	_check(
 		_dummy_bone_weight(mesh_instance.skin, arrays) == 0,
 		"%s has no vertices pinned to the dummy neutral_bone" % label
@@ -238,6 +244,66 @@ func _check_rig(label: String, scene: PackedScene, clips: Array[String]) -> void
 	)
 	root.remove_child(model)
 	model.free()
+
+
+## The albedo is sharp, there is a normal map, and the head has its own dense share of the atlas.
+func _check_textures(label: String, mesh_instance: MeshInstance3D, arrays: Array) -> void:
+	var material := mesh_instance.mesh.surface_get_material(0) as StandardMaterial3D
+	var albedo := material.albedo_texture
+	_check(
+		albedo.get_width() >= MIN_ALBEDO_SIZE and albedo.get_height() >= MIN_ALBEDO_SIZE,
+		(
+			"%s albedo is %dx%d, at least %d px"
+			% [label, albedo.get_width(), albedo.get_height(), MIN_ALBEDO_SIZE]
+		)
+	)
+	_check(material.normal_texture != null, "%s has a normal map" % label)
+	var ratio := _head_density_ratio(mesh_instance.skin, arrays)
+	_check(
+		ratio >= MIN_HEAD_DENSITY_RATIO,
+		(
+			"%s head has %.1fx the body's texel density, at least %.0fx"
+			% [label, ratio, MIN_HEAD_DENSITY_RATIO]
+		)
+	)
+
+
+## Texels per unit of surface on the triangles that follow a head joint, divided by the same
+## figure for every other triangle.
+func _head_density_ratio(skin: Skin, arrays: Array) -> float:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+	var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var is_head_bind: Array[bool] = []
+	for bind in skin.get_bind_count():
+		is_head_bind.append(skin.get_bind_name(bind).to_lower().contains("head"))
+	var is_head_vertex: Array[bool] = []
+	for vertex in vertices.size():
+		var strongest := 0
+		for slot in 4:
+			if weights[vertex * 4 + slot] > weights[vertex * 4 + strongest]:
+				strongest = slot
+		is_head_vertex.append(is_head_bind[bones[vertex * 4 + strongest]])
+	var surface := [0.0, 0.0]
+	var texture_area := [0.0, 0.0]
+	for corner in range(0, indices.size(), 3):
+		var a := indices[corner]
+		var b := indices[corner + 1]
+		var c := indices[corner + 2]
+		var group := (
+			0
+			if int(is_head_vertex[a]) + int(is_head_vertex[b]) + int(is_head_vertex[c]) >= 2
+			else 1
+		)
+		surface[group] += (
+			0.5 * (vertices[b] - vertices[a]).cross(vertices[c] - vertices[a]).length()
+		)
+		texture_area[group] += 0.5 * absf((uvs[b] - uvs[a]).cross(uvs[c] - uvs[a]))
+	if surface[0] <= 0.0 or surface[1] <= 0.0:
+		return 0.0
+	return (texture_area[0] / surface[0]) / (texture_area[1] / surface[1])
 
 
 ## True when the toes (or, for the beast, the head) lie ahead of the ankles (or the hips) on +Z.

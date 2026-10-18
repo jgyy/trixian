@@ -81,7 +81,10 @@ def stack_quats(rotations):
 
 
 def rebind(rig, stand_t, stand_r, weights, joints):
-    """Skins the mesh into the stand pose. Returns positions, normals and new inverse binds."""
+    """Skins the mesh into the stand pose.
+
+    Returns positions, normals, tangents (None when the mesh has none) and new inverse binds.
+    """
     world = rig.world_matrices(stand_t, stand_r)
     skin = rig.skin_matrices(world)
     blended = np.einsum("vk,vkij->vij", weights, skin[joints])
@@ -90,11 +93,30 @@ def rebind(rig, stand_t, stand_r, weights, joints):
     linear = blended[:, :3, :3]
     normals = np.einsum("vji,vj->vi", np.linalg.inv(linear), rig.normals)
     normals /= np.linalg.norm(normals, axis=1, keepdims=True)
-    return positions, normals, np.linalg.inv(world[rig.joints])
+    tangents = None
+    if rig.tangents is not None:
+        # A tangent runs along the surface, so it turns with the blended transform itself.
+        turned = np.einsum("vij,vj->vi", linear, rig.tangents[:, :3])
+        turned /= np.linalg.norm(turned, axis=1, keepdims=True)
+        tangents = np.concatenate([turned, rig.tangents[:, 3:]], axis=1)
+    return positions, normals, tangents, np.linalg.inv(world[rig.joints])
 
 
 def write_rig(
-    rig, doc, binary, path, forward, stand, clips, positions, normals, ibm, weights, joints, indices
+    rig,
+    doc,
+    binary,
+    path,
+    forward,
+    stand,
+    clips,
+    positions,
+    normals,
+    tangents,
+    ibm,
+    weights,
+    joints,
+    indices,
 ):
     doc = copy.deepcopy(doc)
     writer = GlbWriter(doc, binary)
@@ -124,6 +146,10 @@ def write_rig(
             extra = {"min": data.min(axis=0).tolist(), "max": data.max(axis=0).tolist()}
         attrs[name] = writer.add_accessor(
             data.astype(np.float32), 5126, "VEC3", ARRAY_BUFFER, extra
+        )
+    if tangents is not None:
+        attrs["TANGENT"] = writer.add_accessor(
+            tangents.astype(np.float32), 5126, "VEC4", ARRAY_BUFFER
         )
     attrs["TEXCOORD_0"] = writer.copy_accessor(attrs["TEXCOORD_0"])
     joint_type = original["JOINTS_0"]["componentType"]
@@ -210,7 +236,7 @@ def main(source, destination, kind, names, limit, cut, force):
         "  stretch after repair: %d triangles over %.1fx, %d over %.1fx removed"
         % ((worst > limit).sum(), limit, (~keep).sum(), cut)
     )
-    positions, normals, ibm = rebind(rig, stand[0], stand[1], weights, joints)
+    positions, normals, tangents, ibm = rebind(rig, stand[0], stand[1], weights, joints)
     write_rig(
         rig,
         doc,
@@ -221,6 +247,7 @@ def main(source, destination, kind, names, limit, cut, force):
         clips,
         positions,
         normals,
+        tangents,
         ibm,
         weights,
         joints,

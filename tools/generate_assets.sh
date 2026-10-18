@@ -10,8 +10,10 @@
 #   DRY_RUN=1 tools/generate_assets.sh      # validate every prompt; spends no credits
 #
 # The GLBs it writes are Tripo's raw output. Before they are committed they go through the offline
-# repair steps in docs/asset-pipeline.md: rebake_textures.py, then for the characters
-# tune_character_materials.py and fix_character_rig.py.
+# repair steps in docs/asset-pipeline.md. A prop needs rebake_textures.py. A character needs
+# tools/repair_character.sh, which runs rebake_textures.py, tune_character_materials.py and
+# fix_character_rig.py, and bakes its textures from the full-size animated GLB this script leaves
+# in $WORK_DIR/NAME/anim, so keep that directory.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

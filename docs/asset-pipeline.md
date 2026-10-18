@@ -1,8 +1,10 @@
 # Tripo asset pipeline
 
 Every 3D model in `assets/models/` was generated with the Tripo CLI from a text prompt. The
-full-size GLBs that Tripo returns are about 45 MB each because of their 4K-class textures, so
-each one is re-exported with 2048 px textures and at most 30,000 faces before it is committed.
+full-size GLBs that Tripo returns are about 45 MB each because of their 1.4 million triangles and
+4096 px textures, so each one is re-exported with at most 30,000 faces before it is committed.
+The props use the 2048 px export. The characters do not: their textures are baked again from the
+full-size model so that faces stay sharp up close (see [Sharp faces](#sharp-faces-bake-from-the-full-model)).
 The characters are also rigged. Tripo's rigs and preset clips are not usable as they come, so a
 repair step fixes their facing, skin weights and animation (see [Rig repair](#rig-repair)).
 
@@ -42,20 +44,23 @@ write plain GLBs and need no account.
 
 ```mermaid
 flowchart LR
-    tripo["Tripo GLB<br/>rig, preset clips, 2048 px"] --> rebake["rebake_textures.py<br/>re-unwrap UVs, move maps"]
+    tripo["Tripo GLB<br/>rig, preset clips, 2048 px, 30k faces"] --> rebake["rebake_textures.py<br/>re-unwrap UVs, dense head"]
+    full["Full-size animated GLB<br/>1.4M triangles, 4096 px"] -. characters .-> rebake
     rebake --> tune["tune_character_materials.py<br/>roughness 0.55, metallic 0"]
     tune --> fix["fix_character_rig.py<br/>facing, bind pose, weights, clips"]
     fix --> repo["assets/models/NAME.glb"]
     rebake -. props .-> repo
 ```
 
-Props only need the rebake. Characters need all three, in this order, and the rig repair refuses to
-run twice on the same file.
+Props only need the rebake, and it moves their 2048 px maps into the new layout. Characters need all
+three, in this order, and are baked from the full-size model. The rig repair refuses to run twice
+on the same file. `tools/repair_character.sh NAME` runs the three steps for one character.
 
 ## Regenerating
 
 `tools/generate_assets.sh` holds the exact prompts, rig types, animation presets and commands. It
-needs the CLI and a logged-in account:
+needs the CLI and a logged-in account. It keeps both the 2048 px export and the full-size animated
+GLB of every character in `.tripo-work/`, because the repair bakes from the second:
 
 ```bash
 npm install -g tripo-cli
@@ -63,6 +68,7 @@ tripo login
 tools/generate_assets.sh                 # every asset
 tools/generate_assets.sh female_cultivator   # one asset
 DRY_RUN=1 tools/generate_assets.sh       # validate prompts, spends no credits
+tools/repair_character.sh female_cultivator   # rebake, tune and rig repair, writes assets/models/
 ```
 
 Approximate credit costs from the runs that produced the committed models:
@@ -125,6 +131,144 @@ limitation.
 
 Before (top) is each model's Tripo UV layout. After (bottom) is the re-unwrapped layout with the
 transferred textures. Each pair is the same camera position.
+
+## Sharp faces: bake from the full model
+
+Zoomed in on the cultivator, her face was soft and blotchy: the eyes were smears, the lips had no
+edge and pale polygons floated over the cheeks. The cause was not the game or the face itself.
+Tripo's full-size model has a good face, around 400 px wide in its 4096 px texture. It was lost
+in three steps on the way to the repo.
+
+| Step | What it did to the face |
+| --- | --- |
+| Tripo's atlas | Spreads 4096 px evenly over the whole body, hair included. The head is 5 to 7% of the surface, so the face gets a patch about 400 px wide |
+| The 2048 px, 30k-face export | Halves every texture and re-bakes the maps onto the decimated mesh. The face patch dropped to about 100 px |
+| The first rebake | Moves those 2048 px maps into a new layout with the same density everywhere, so it could not bring any detail back |
+
+![The face in the valley, before and after](texture-fix/in_game_face.png)
+
+`tools/rebake_textures.py` now takes a third argument, the full-size model, and rebuilds the
+texture from it:
+
+```mermaid
+flowchart TD
+    game["Game mesh<br/>30k faces, rig, clips"] --> split["Split the head from the body<br/>at the neck, by skin weights"]
+    split --> scale["Scale the head 3x for the unwrap<br/>(9x the area per unit of surface)"]
+    scale --> atlas["xatlas pack into 4096 px<br/>density fitted, not squeezed"]
+    atlas --> tiny["Triangles under 2 texels<br/>point at their biggest neighbour"]
+    tiny --> layout["Game mesh with the new UVs"]
+    layout --> blender["Blender, Cycles on the GPU<br/>bake_hires_maps.py"]
+    full["Full-size model<br/>1.4M triangles, 4096 px"] --> blender
+    blender --> maps["4096 px base colour<br/>4096 px object-space normal<br/>roughness"]
+    maps --> guard["Guard: a triangle whose bake is off by more<br/>than 0.2 takes the old colour"]
+    old["Old 2048 px maps, moved<br/>into the new layout"] --> guard
+    maps --> tangent["Object-space to tangent-space normal,<br/>using the mesh's own normals"]
+    layout --> tangent
+    guard --> glb["Character GLB<br/>4096 px colour, 2048 px normal,<br/>512 px roughness, TANGENT"]
+    tangent --> glb
+```
+
+1. **Dense head.** The head triangles (two or more corners owned mostly by a `Head` joint) get
+   their own copies of their vertices, scaled up 3x about the head's centre, and xatlas packs that
+   as a separate, larger surface. The mesh itself is untouched. The seam falls at the neck, where
+   skin meets skin. A head texel now covers a ninth of the surface a body texel does. The head of a
+   biped is 5 to 7% of its surface and takes 12 to 17% of the atlas. The wolf's head is 30% of its
+   surface and takes 24%.
+2. **Fit, do not squeeze.** Given only a resolution, xatlas estimates its texel density and
+   overshoots: 5300 px for a 4096 px target. Shrinking the UVs afterwards also shrinks the padding.
+   Giving it both a density and a resolution is worse, because it squeezes the charts into the
+   resolution and overlaps them, which put robe colours into the hair. `pack()` measures the density
+   from a first pass and repeats at one that fits, with no resolution.
+3. **Tiny triangles.** Roughly 2,000 to 3,000 triangles per character cover under two texels and
+   would be painted with whatever the margin pulled in from the island beside them. They get their
+   own vertices and are pointed at the middle of their largest neighbour, so a sliver looks like
+   what it is part of.
+4. **Bake in Blender.** `tools/bake_hires_maps.py` imports the game mesh and the full model and
+   casts rays from the game surface to the full one on the GPU (Cycles, OptiX), once for the diffuse
+   colour, once for the normal and once for the roughness. It takes about a minute.
+5. **Guard.** The full model has strands, hairpins and inner layers under or in front of the game
+   mesh, and a ray can land on one of them. A triangle whose average baked colour is more than 0.2
+   from the old export's, moved into the same layout, takes the old colour. Real detail such as a
+   pupil moves a triangle's average very little. 0.3 to 3.8% of triangles are replaced.
+6. **Normals in the engine's frame.** Blender's own tangent space follows its automatic vertex
+   normals, which are not the normals stored in the GLB, and the mismatch showed as pale and dark
+   polygons shaped like the texture islands. The bake is made in object space instead and converted
+   to tangent space in `tangent_space_normals()`, against the GLB's own normals and a `TANGENT`
+   attribute that `vertex_tangents()` writes into the file. Godot uses an explicit tangent as it
+   finds it, so the map is lit the way it was made. `fix_character_rig.py` turns the tangents with
+   the same skinning it applies to the normals.
+
+![The cultivator in close-up, before and after](texture-fix/closeup_female.png)
+
+Left: the 2048 px export. Right: baked from the full model. Top row: a bust. Bottom row: the face
+from 45 cm, closer than the game's camera can go. The lashes, lips, nostrils and the shape of the
+nose now come from the 1.4M-triangle mesh's own normal map.
+
+![The hero](texture-fix/closeup_hero.png)
+
+![Elder Wen](texture-fix/closeup_elder.png)
+
+![The atlas of the female cultivator, before and after](texture-fix/atlas_female.png)
+
+The old atlas gives the whole body one density. The new one gives the head a large share. Small
+islands packed along the right edge are the tiny triangles of step 3.
+
+### Measured result
+
+Texels per centimetre on a 1.8 m character, over the triangles that follow the head joint, from the
+GLBs themselves:
+
+| Model | Albedo | Head texels per cm, before | After | Gain (linear) | Body texels per cm, before | After |
+| --- | --- | --- | --- | --- | --- | --- |
+| `female_cultivator` | 2048 to 4096 px | 5.8 | 27.4 | 4.7x | 5.8 | 9.2 |
+| `hero` | 2048 to 4096 px | 6.1 | 28.5 | 4.7x | 6.2 | 9.7 |
+| `elder` | 2048 to 4096 px | 6.4 | 28.9 | 4.6x | 6.5 | 9.9 |
+| `demon_wolf` | 2048 to 4096 px | 4.3 | 12.3 | 2.8x | 4.3 | 4.1 |
+
+The source model's own face is about 27 texels per cm, so the head now holds all the detail Tripo
+made. Baking the head at a higher density would only enlarge the same pixels. The wolf's head is a
+quarter of its surface, so it gets a smaller share per texel.
+
+`tests/run_tests.gd` checks that every character has a 4096 px albedo, a normal map and a head at
+least 4x as dense as its body (8.5x to 8.9x now). The albedo and density checks fail on the
+previous models, which had 2048 px albedos and the same density everywhere.
+
+### What it costs
+
+| Map | Before | After |
+| --- | --- | --- |
+| Base colour | 2048 px JPEG | 4096 px JPEG, quality 92 |
+| Normal | 1024 px PNG, blurred 2 px | 2048 px JPEG, quality 95, blurred 0.6 px |
+| Metal and roughness | 1024 px PNG | 512 px PNG, roughness only |
+
+The characters grow from 5.5 to 6.1 MB to 9.0 to 10.4 MB each. Godot compresses the textures when
+it imports them. The roughness is only a factor over a smooth map and the metallic channel is zero,
+so 512 px loses nothing.
+
+```bash
+pip install xatlas numpy pillow scipy
+blender --version                       # Blender 5.2 was used; Cycles on a GPU takes about a minute
+tools/repair_character.sh female_cultivator
+# or by hand:
+tools/rebake_textures.py .tripo-work/female_cultivator/optimised/.../model.glb \
+    /tmp/rebaked.glb .tripo-work/female_cultivator/anim/.../model.glb
+```
+
+If another `python3.x` comes before the system one on `PATH` (uv and pyenv do this), Blender fails
+to start with `No module named 'math'`: its embedded Python finds its standard library through
+`PATH`. `rebake_textures.py` puts Blender's own directory first for that reason.
+
+### Limits
+
+- The seam at the neck is a texture seam. Both sides are baked from the same source, so the colour
+  matches, but the pixels are not shared.
+- The guard trades sharpness for safety on 0.3 to 3.8% of triangles, which are soft instead of
+  wrong. Where the full model has a loose strand across a face, that triangle keeps the old,
+  blurrier colour.
+- A dark vertical line runs down the face in the valley's light. It is there with the old model
+  too, so it comes from the lighting and not from the texture, and it was not investigated here.
+- Props still use the 2048 px export. The sect hall, spirit tree and jade rock are seen from a
+  distance, and the same bake would work if they were ever seen close up.
 
 ## Material tuning
 
