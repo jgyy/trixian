@@ -12,7 +12,7 @@ Built by `scripts/main.gd` when the scene enters the tree.
 flowchart TD
     main["Main (main.gd)"] --> world["WorldEnvironment + sun"]
     main --> ground["Ground + stone path"]
-    main --> scenery["Scenery props<br/>sect hall, spirit trees, jade rocks"]
+    main --> scenery["Scenery props<br/>walk-in sect hall, spirit trees, jade rocks"]
     main --> decor["ValleyDecor<br/>mountains, grass, flowers, pond,<br/>bamboo, lanterns, gate, braziers"]
     main --> npcs["Npc x2<br/>Elder Wen (quest), Disciple Lin"]
     main --> beasts["SpiritBeast x3<br/>demon wolves"]

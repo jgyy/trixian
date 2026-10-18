@@ -60,7 +60,7 @@ func _setup_spawn() -> void:
 
 func _setup_hall() -> void:
 	_free_camera.make_current()
-	_free_camera.look_at_from_position(Vector3(-3.5, 3.0, -4.0), Vector3(0.0, 4.0, -16.0))
+	_free_camera.look_at_from_position(Vector3(-9.0, 4.0, -2.0), Vector3(0.0, 7.0, -26.0))
 
 
 func _setup_meditation() -> void:
