@@ -12,6 +12,10 @@ preset animations, and you play as a female cultivator.
 | --- | --- |
 | ![Third-person view](docs/screenshots/third_person_spawn.png) | ![Sect hall](docs/screenshots/sect_hall.png) |
 
+| Sect hall entrance |
+| --- |
+| ![Sect hall entrance](docs/screenshots/sect_hall_entrance.png) |
+
 | Meditating and gathering qi |
 | --- |
 | ![Meditation](docs/screenshots/meditation_breakthrough.png) |
@@ -27,8 +31,9 @@ preset animations, and you play as a female cultivator.
 - **Quest.** Elder Wen sends you after two wolves and rewards you with qi when you return. Wolves
   slain before you accept the quest count towards it.
 - **Meet the sect.** Disciple Lin at the gate shares advice when you talk to her.
-- **Enter the sect hall.** The hall is twice the height of the other buildings and has a doorway
-  on its open side, so you can walk inside and look around.
+- **Enter the sect hall.** The hall is twice the height of the other buildings. Climb the stairs on
+  its east side, walk along the entry gallery and drop into the cella. Its walls, pillars and
+  stairs block you exactly where they are drawn.
 
 ## Controls
 
@@ -56,7 +61,7 @@ godot --path .                       # launch the game
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . --script res://tests/run_tests.gd   # 43 headless checks
+godot --headless --path . --script res://tests/run_tests.gd   # 45 headless checks
 pip install "gdtoolkit==4.5.0"
 gdlint scripts tests tools
 gdformat --check scripts tests tools
@@ -69,7 +74,9 @@ CI runs the same lint and test steps on every pull request. The workflow is in
 
 `tools/generate_assets.sh` regenerates the models with the Tripo CLI, including the rigging and
 animation steps. `tools/rebake_textures.py` then re-unwraps each model's UVs and moves its textures
-into the new layout, which removes the stretched texture islands Tripo's own unwrap produces. See
+into the new layout, which removes the stretched texture islands Tripo's own unwrap produces.
+`tools/tune_character_materials.py` sets the characters' material factors so they read as cloth and
+skin rather than clay, and `tools/carve_hall_doorway.py` opens the sect hall's east doorway. See
 [docs/asset-pipeline.md](docs/asset-pipeline.md) for the prompts, credit costs, the rebake steps
 and the 2048 px texture export.
 

@@ -12,12 +12,14 @@ const SHOTS: Array[String] = [
 	"valley_overview",
 	"third_person_spawn",
 	"sect_hall",
+	"sect_hall_entrance",
 	"meditation_breakthrough",
 ]
 const SETUPS: Array[String] = [
 	"_setup_overview",
 	"_setup_spawn",
 	"_setup_hall",
+	"_setup_hall_entrance",
 	"_setup_meditation",
 ]
 
@@ -61,6 +63,12 @@ func _setup_spawn() -> void:
 func _setup_hall() -> void:
 	_free_camera.make_current()
 	_free_camera.look_at_from_position(Vector3(-9.0, 4.0, -2.0), Vector3(0.0, 7.0, -26.0))
+
+
+## Looks at the hall from the east, where the side stairs lead up to the entry gallery.
+func _setup_hall_entrance() -> void:
+	_free_camera.make_current()
+	_free_camera.look_at_from_position(Vector3(20.0, 5.5, -34.0), Vector3(2.5, 2.0, -26.0))
 
 
 func _setup_meditation() -> void:

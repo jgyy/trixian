@@ -6,6 +6,7 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const SCENE_FRAMES := 5
+const HALL_ORIGIN := Vector3(0.0, 0.0, -26.0)
 
 var _passed := 0
 var _failed := 0
@@ -149,17 +150,34 @@ func _test_scene_boots() -> void:
 	for beast in get_nodes_in_group("enemies"):
 		_check((beast as SpiritBeast).animator.has_clip(&"walk"), "spirit beast has a walk clip")
 		break
-	_test_hall_doorway()
+	_test_hall_walk_in()
 
 
-func _test_hall_doorway() -> void:
+func _test_hall_walk_in() -> void:
 	print("Sect hall")
 	var space := _main.get_world_3d().direct_space_state
-	var through_door := PhysicsRayQueryParameters3D.create(
-		Vector3(0.0, 1.0, -8.0), Vector3(0.0, 1.0, -30.0)
+	var through_doorway := PhysicsRayQueryParameters3D.create(
+		HALL_ORIGIN + Vector3(4.0, 3.0, -0.5), HALL_ORIGIN + Vector3(-1.0, 3.0, -0.5)
 	)
-	_check(space.intersect_ray(through_door).is_empty(), "the hall doorway is open")
-	var through_wall := PhysicsRayQueryParameters3D.create(
-		Vector3(-8.0, 1.0, -8.0), Vector3(-8.0, 1.0, -30.0)
+	_check(space.intersect_ray(through_doorway).is_empty(), "the east doorway is open")
+	var into_west_wall := PhysicsRayQueryParameters3D.create(
+		HALL_ORIGIN + Vector3(-1.0, 3.0, -0.5), HALL_ORIGIN + Vector3(-9.0, 3.0, -0.5)
 	)
-	_check(not space.intersect_ray(through_wall).is_empty(), "the hall front wall has collision")
+	_check(not space.intersect_ray(into_west_wall).is_empty(), "the cella's west wall blocks")
+	_check(
+		absf(_floor_height(space, 1.7, -0.5) - 0.84) < 0.03,
+		"the entry ramp is at 0.84 m, partway down from the gallery to the cella"
+	)
+	_check(
+		absf(_floor_height(space, 0.0, 9.6) - 1.75) < 0.06,
+		"the front terrace stands about 1.75 m above the ground"
+	)
+
+
+## Height of the first collision surface below a point over the hall, or -1 when there is none.
+func _floor_height(space: PhysicsDirectSpaceState3D, x: float, z: float) -> float:
+	var from := HALL_ORIGIN + Vector3(x, 6.0, z)
+	var hit := space.intersect_ray(
+		PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 12.0)
+	)
+	return snappedf(hit.position.y, 0.01) if not hit.is_empty() else -1.0
