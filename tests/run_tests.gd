@@ -15,7 +15,9 @@ var _main: Node3D
 
 func _initialize() -> void:
 	_test_cultivation_rules()
+	_test_wolf_quest()
 	_test_model_fitting()
+	_test_clip_resolution()
 	_main = load(MAIN_SCENE).instantiate() as Node3D
 	root.add_child(_main)
 
@@ -64,6 +66,30 @@ func _test_cultivation_rules() -> void:
 	_check(cultivation.progress() <= 1.0, "progress is clamped to 1.0")
 
 
+func _test_wolf_quest() -> void:
+	print("WolfQuest")
+	var quest := WolfQuest.new(2, 150.0)
+	_check(quest.objective_text() == "Speak with Elder Wen", "quest starts unaccepted")
+	quest.record_kill()
+	quest.record_kill()
+	_check(quest.progress() == 2, "wolves slain before accepting still count")
+	_check(
+		is_equal_approx(quest.talk(), 150.0),
+		"accepting with the wolves already slain turns the quest in on the same talk"
+	)
+	_check(quest.step == WolfQuest.Step.COMPLETE, "quest is complete after the turn-in")
+	_check(is_equal_approx(quest.talk(), 0.0), "a completed quest pays no reward again")
+
+	var later := WolfQuest.new(2, 150.0)
+	_check(is_equal_approx(later.talk(), 0.0), "accepting with no kills pays nothing")
+	later.record_kill()
+	_check(later.objective_text() == "Slay demon wolves 1 / 2", "objective shows progress")
+	_check(not later.is_ready_to_turn_in(), "one kill is not enough to turn in")
+	later.record_kill()
+	_check(later.objective_text() == "Return to Elder Wen", "objective asks for the turn-in")
+	_check(is_equal_approx(later.talk(), 150.0), "talking after the kills pays the reward")
+
+
 func _test_model_fitting() -> void:
 	print("ModelUtils")
 	var holder := Node3D.new()
@@ -85,6 +111,27 @@ func _test_model_fitting() -> void:
 	holder.free()
 
 
+func _test_clip_resolution() -> void:
+	print("CharacterAnimator")
+	var holder := Node3D.new()
+	var player := AnimationPlayer.new()
+	var library := AnimationLibrary.new()
+	for clip in ["Armature|idle", "Armature|walk", "slash"]:
+		library.add_animation(clip, Animation.new())
+	player.add_animation_library("", library)
+	holder.add_child(player)
+
+	var animator := CharacterAnimator.new(holder)
+	_check(animator.has_clip(&"idle"), "a prefixed clip name matches its state")
+	_check(animator.has_clip(&"walk"), "walk resolves inside a prefixed name")
+	_check(animator.has_clip(&"slash"), "a bare clip name matches its state")
+	_check(not animator.has_clip(&"hurt"), "a missing clip is reported as missing")
+	_check(not animator.play_action(&"hurt"), "a missing action returns false for fallbacks")
+	_check(animator.play_action(&"slash"), "a present action plays")
+	_check(animator.is_action_playing(), "the action is marked as playing")
+	holder.free()
+
+
 func _test_scene_boots() -> void:
 	print("Scene")
 	var player := get_first_node_in_group("player") as Cultivator
@@ -94,5 +141,11 @@ func _test_scene_boots() -> void:
 		_check(
 			player.cultivation.realm_name() == "Qi Condensation", "player starts at the first realm"
 		)
+		_check(player.animator.has_clip(&"idle"), "player model has an idle clip")
+		_check(player.animator.has_clip(&"run"), "player model has a run clip")
+		_check(player.animator.has_clip(&"slash"), "player model has a slash clip")
 	_check(get_nodes_in_group("enemies").size() == 3, "three spirit beasts are spawned")
-	_check(get_nodes_in_group("npcs").size() == 1, "one NPC is spawned")
+	_check(get_nodes_in_group("npcs").size() == 2, "two NPCs are spawned")
+	for beast in get_nodes_in_group("enemies"):
+		_check((beast as SpiritBeast).animator.has_clip(&"walk"), "spirit beast has a walk clip")
+		break
