@@ -1,8 +1,6 @@
 extends Node3D
 
-## Builds the Azure Cloud Sect valley: scenery, spirit beasts, an NPC quest, and the player.
-
-enum QuestState { NOT_STARTED, ACTIVE, COMPLETE }
+## Builds the Azure Cloud Sect valley: scenery, spirit beasts, NPCs with a quest, and the player.
 
 const WOLVES_REQUIRED := 2
 const REWARD_QI := 150.0
@@ -12,8 +10,14 @@ const BEAST_SPAWNS: Array[Vector3] = [
 	Vector3(12.0, 0.0, 4.0),
 	Vector3(-12.0, 0.0, 12.0),
 ]
+const DISCIPLE_LINES: PackedStringArray = [
+	"Disciple Lin: The sect gate stands open to every cultivator who walks this path.",
+	"Disciple Lin: Keep your qi calm. A troubled mind draws the demon wolves.",
+	"Disciple Lin: Elder Wen waits by the hall. Speak with him once you are ready.",
+]
 
-const HERO_MODEL := preload("res://assets/models/hero.glb")
+const PLAYER_MODEL := preload("res://assets/models/female_cultivator.glb")
+const DISCIPLE_MODEL := preload("res://assets/models/hero.glb")
 const ELDER_MODEL := preload("res://assets/models/elder.glb")
 const WOLF_MODEL := preload("res://assets/models/demon_wolf.glb")
 const HALL_MODEL := preload("res://assets/models/sect_hall.glb")
@@ -23,8 +27,7 @@ const ROCK_MODEL := preload("res://assets/models/jade_rock.glb")
 var _player: Cultivator
 var _hud: Hud
 var _elder: Npc
-var _quest_state := QuestState.NOT_STARTED
-var _wolves_slain := 0
+var _quest := WolfQuest.new(WOLVES_REQUIRED, REWARD_QI)
 
 
 func _ready() -> void:
@@ -32,7 +35,7 @@ func _ready() -> void:
 	_build_environment()
 	_build_ground()
 	_build_scenery()
-	_build_npc()
+	_build_npcs()
 	_build_enemies()
 	_hud = Hud.new()
 	add_child(_hud)
@@ -44,9 +47,9 @@ func _ready() -> void:
 
 func _build_environment() -> void:
 	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.32, 0.5, 0.74)
-	sky_material.sky_horizon_color = Color(0.8, 0.84, 0.88)
-	sky_material.ground_horizon_color = Color(0.7, 0.74, 0.74)
+	sky_material.sky_top_color = Color(0.3, 0.5, 0.76)
+	sky_material.sky_horizon_color = Color(0.82, 0.86, 0.88)
+	sky_material.ground_horizon_color = Color(0.7, 0.74, 0.72)
 	sky_material.ground_bottom_color = Color(0.25, 0.3, 0.26)
 	var sky := Sky.new()
 	sky.sky_material = sky_material
@@ -57,8 +60,9 @@ func _build_environment() -> void:
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	environment.ambient_light_energy = 0.8
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.8, 0.84, 0.88)
-	environment.fog_density = 0.004
+	environment.fog_light_color = Color(0.8, 0.84, 0.86)
+	environment.fog_density = 0.005
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
 	var world := WorldEnvironment.new()
 	world.environment = environment
@@ -106,15 +110,12 @@ func _build_scenery() -> void:
 	_add_prop(HALL_MODEL, Vector3(0.0, 0.0, -16.0), 9.0, 0.0, true)
 	_add_prop(TREE_MODEL, Vector3(9.0, 0.0, -7.0), 7.0, 0.3, false)
 	_add_prop(TREE_MODEL, Vector3(-14.0, 0.0, -8.0), 5.0, 1.0, false)
+	_add_prop(TREE_MODEL, Vector3(15.0, 0.0, -20.0), 8.0, 2.2, false)
+	_add_prop(TREE_MODEL, Vector3(-22.0, 0.0, 4.0), 6.0, 0.6, false)
 	_add_prop(ROCK_MODEL, Vector3(-6.0, 0.0, -3.0), 2.6, 0.0, true)
 	_add_prop(ROCK_MODEL, Vector3(-10.0, 0.0, 5.0), 1.6, 1.2, true)
-
-	var glow := OmniLight3D.new()
-	glow.light_color = Color(0.45, 1.0, 0.65)
-	glow.light_energy = 2.0
-	glow.omni_range = 7.0
-	glow.position = Vector3(-6.0, 2.0, -3.0)
-	add_child(glow)
+	_add_prop(ROCK_MODEL, Vector3(10.0, 0.0, 12.0), 1.2, 0.5, true)
+	ValleyDecor.build(self)
 
 
 ## Places a fitted Tripo prop. Solid props get a box collider matching their footprint.
@@ -139,15 +140,25 @@ func _add_prop(scene: PackedScene, at: Vector3, height: float, yaw: float, solid
 	return root
 
 
-func _build_npc() -> void:
-	_elder = Npc.new()
-	_elder.model_scene = ELDER_MODEL
-	_elder.display_name = "Elder Wen"
-	_elder.height = 1.9
-	_elder.position = Vector3(2.5, 0.0, -4.0)
+func _build_npcs() -> void:
+	_elder = _add_npc(ELDER_MODEL, "Elder Wen", Vector3(2.5, 0.0, -4.0), 1.9)
 	_elder.rotation.y = ModelUtils.yaw_towards(SPAWN_POINT - _elder.position)
 	_elder.talked.connect(_on_npc_talked)
-	add_child(_elder)
+
+	var disciple := _add_npc(DISCIPLE_MODEL, "Disciple Lin", Vector3(-4.5, 0.0, 4.0), 1.8)
+	disciple.lines = DISCIPLE_LINES
+	disciple.rotation.y = ModelUtils.yaw_towards(SPAWN_POINT - disciple.position)
+	disciple.talked.connect(_on_npc_talked)
+
+
+func _add_npc(model: PackedScene, npc_name: String, at: Vector3, height: float) -> Npc:
+	var npc := Npc.new()
+	npc.model_scene = model
+	npc.display_name = npc_name
+	npc.height = height
+	npc.position = at
+	add_child(npc)
+	return npc
 
 
 func _build_enemies() -> void:
@@ -161,7 +172,7 @@ func _build_enemies() -> void:
 
 func _build_player() -> void:
 	_player = Cultivator.new()
-	_player.model_scene = HERO_MODEL
+	_player.model_scene = PLAYER_MODEL
 	_player.position = SPAWN_POINT
 	_player.stats_changed.connect(_refresh_hud)
 	_player.realm_changed.connect(_on_realm_changed)
@@ -170,36 +181,32 @@ func _build_player() -> void:
 	add_child(_player)
 
 
-func _on_npc_talked(_npc: Npc) -> void:
-	match _quest_state:
-		QuestState.NOT_STARTED:
-			_quest_state = QuestState.ACTIVE
-			_hud.show_message(
-				(
-					"Elder Wen: Demon wolves stalk the valley. Slay %d and return to me."
-					% WOLVES_REQUIRED
-				),
-				6.0
-			)
-		QuestState.ACTIVE:
-			if _wolves_slain >= WOLVES_REQUIRED:
-				_quest_state = QuestState.COMPLETE
-				_player.cultivation.gain_qi(REWARD_QI)
-				_hud.show_message(
-					"Elder Wen: Well done. Take this qi from the sect's reserves.", 6.0
-				)
-			else:
-				_hud.show_message(
-					"Elder Wen: %d more beasts remain." % (WOLVES_REQUIRED - _wolves_slain)
-				)
-		QuestState.COMPLETE:
-			_hud.show_message("Elder Wen: Walk the path of immortality, cultivator.")
+func _on_npc_talked(npc: Npc) -> void:
+	if npc != _elder:
+		_hud.show_message(npc.next_line(), 5.0)
+		return
+	var accepting := _quest.step == WolfQuest.Step.NOT_STARTED
+	var reward := _quest.talk()
+	if reward > 0.0:
+		_player.cultivation.gain_qi(reward)
+		_hud.show_message("Elder Wen: Well done. Take this qi from the sect's reserves.", 6.0)
+	elif accepting:
+		_hud.show_message(
+			"Elder Wen: Demon wolves stalk the valley. Slay %d and return to me." % WOLVES_REQUIRED,
+			6.0
+		)
+	elif _quest.step == WolfQuest.Step.ACTIVE:
+		_hud.show_message(
+			"Elder Wen: %d more beasts remain." % (WOLVES_REQUIRED - _quest.progress())
+		)
+	else:
+		_hud.show_message("Elder Wen: Walk the path of immortality, cultivator.")
 	_refresh_quest()
 	_refresh_hud()
 
 
 func _on_beast_died(qi_reward: float) -> void:
-	_wolves_slain += 1
+	_quest.record_kill()
 	_player.cultivation.gain_qi(qi_reward)
 	_hud.show_message("Spirit beast slain. +%d qi." % int(qi_reward))
 	_refresh_quest()
@@ -211,18 +218,7 @@ func _on_realm_changed(realm_name: String) -> void:
 
 
 func _refresh_quest() -> void:
-	match _quest_state:
-		QuestState.NOT_STARTED:
-			_hud.set_quest("Quest: Speak with Elder Wen")
-		QuestState.ACTIVE:
-			_hud.set_quest(
-				(
-					"Quest: Slay demon wolves %d / %d"
-					% [mini(_wolves_slain, WOLVES_REQUIRED), WOLVES_REQUIRED]
-				)
-			)
-		QuestState.COMPLETE:
-			_hud.set_quest("Quest complete")
+	_hud.set_quest(_quest.objective_text(), _quest.step == WolfQuest.Step.COMPLETE)
 
 
 func _refresh_hud() -> void:
@@ -234,5 +230,6 @@ func _refresh_hud() -> void:
 		_player.max_hp,
 		cultivation.realm_name(),
 		cultivation.qi,
-		cultivation.qi_required()
+		cultivation.qi_required(),
+		cultivation.is_max_realm()
 	)

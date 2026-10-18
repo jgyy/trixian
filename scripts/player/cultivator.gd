@@ -18,6 +18,9 @@ signal prompt_changed(text: String)
 @export var attack_cooldown := 0.45
 @export var meditation_qi_per_second := 12.0
 @export var interact_range := 3.0
+@export var min_zoom := 1.8
+@export var max_zoom := 9.0
+@export var zoom_step := 0.6
 
 ## Tripo model for the cultivator. Assigned before the node enters the tree.
 var model_scene: PackedScene
@@ -25,6 +28,7 @@ var hp := 100.0
 var cultivation := Cultivation.new()
 var is_meditating := false
 var camera: Camera3D
+var animator: CharacterAnimator
 
 var _spawn_position: Vector3
 var _heading := 0.0
@@ -48,6 +52,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("release_mouse"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif event is InputEventMouseButton and event.pressed and _is_wheel(event):
+		_zoom(event as InputEventMouseButton)
 	elif event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -56,6 +62,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		_spring_arm.rotation.x = clampf(
 			_spring_arm.rotation.x - motion.relative.y * mouse_sensitivity, -1.2, 0.35
 		)
+
+
+static func _is_wheel(event: InputEventMouseButton) -> bool:
+	return event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]
+
+
+## Each wheel notch moves the camera boom in or out, clamped to the zoom range.
+func _zoom(event: InputEventMouseButton) -> void:
+	var step := -zoom_step if event.button_index == MOUSE_BUTTON_WHEEL_UP else zoom_step
+	_spring_arm.spring_length = clampf(_spring_arm.spring_length + step, min_zoom, max_zoom)
 
 
 func _physics_process(delta: float) -> void:
@@ -99,6 +115,7 @@ func _physics_process(delta: float) -> void:
 		cultivation.gain_qi(meditation_qi_per_second * delta)
 		hp = minf(hp + 2.0 * delta, max_hp)
 		stats_changed.emit()
+	_update_animation()
 	_update_prompt()
 
 
@@ -107,7 +124,8 @@ func attack() -> void:
 	if _cooldown > 0.0 or is_meditating:
 		return
 	_cooldown = attack_cooldown
-	_play_swing()
+	if not animator.play_action(&"slash"):
+		_play_swing()
 	var facing := Vector3(sin(_heading), 0.0, cos(_heading))
 	for node in get_tree().get_nodes_in_group("enemies"):
 		var enemy := node as SpiritBeast
@@ -121,12 +139,17 @@ func attack() -> void:
 
 func take_damage(amount: float) -> void:
 	hp -= amount
+	if is_meditating:
+		is_meditating = false
+		message.emit("A blow breaks your meditation.")
 	if hp <= 0.0:
 		hp = max_hp
 		global_position = _spawn_position
 		velocity = Vector3.ZERO
 		is_meditating = false
 		message.emit("You collapse and awaken at the sect gate.")
+	else:
+		animator.play_action(&"hurt")
 	stats_changed.emit()
 
 
@@ -182,6 +205,12 @@ func _update_prompt() -> void:
 		prompt_changed.emit(text)
 
 
+func _update_animation() -> void:
+	var moving := Vector2(velocity.x, velocity.z).length() > 0.5
+	animator.play(&"run" if moving and not is_meditating else &"idle")
+
+
+## Fallback swing for models without a slash clip: the body pulses in scale.
 func _play_swing() -> void:
 	var tween := create_tween()
 	tween.tween_property(_visual, "scale", Vector3.ONE * 1.04, 0.08)
@@ -194,6 +223,8 @@ func _build_body() -> void:
 	var model := model_scene.instantiate() as Node3D
 	_visual.add_child(model)
 	ModelUtils.fit_to_height(model, height)
+	animator = CharacterAnimator.new(model)
+	animator.play(&"idle")
 
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()

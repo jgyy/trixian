@@ -13,10 +13,12 @@ signal died(qi_reward: float)
 @export var attack_damage := 8.0
 @export var attack_cooldown := 1.4
 @export var qi_reward := 40.0
+@export var turn_speed := 8.0
 
 ## Tripo model for the beast. Assigned before the node enters the tree.
 var model_scene: PackedScene
 var hp := 60.0
+var animator: CharacterAnimator
 
 var _visual: Node3D
 var _cooldown := 0.0
@@ -33,6 +35,7 @@ func _ready() -> void:
 	var model := model_scene.instantiate() as Node3D
 	_visual.add_child(model)
 	ModelUtils.fit_to_height(model, height)
+	animator = CharacterAnimator.new(model)
 
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
@@ -59,16 +62,18 @@ func _physics_process(delta: float) -> void:
 		to_player.y = 0.0
 		var distance := to_player.length()
 		if distance <= detect_range:
-			_visual.rotation.y = ModelUtils.yaw_towards(to_player)
+			_turn_towards(delta, to_player)
 			if distance > attack_range:
 				horizontal = to_player.normalized() * move_speed
 			elif _cooldown <= 0.0:
 				_cooldown = attack_cooldown
+				_lunge()
 				_player.take_damage(attack_damage)
 
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 	move_and_slide()
+	animator.play(&"walk" if horizontal.length() > 0.1 else &"idle")
 
 
 func take_damage(amount: float) -> void:
@@ -77,6 +82,33 @@ func take_damage(amount: float) -> void:
 	hp -= amount
 	if hp <= 0.0:
 		_die()
+	else:
+		_flinch()
+
+
+func _turn_towards(delta: float, direction: Vector3) -> void:
+	var target := ModelUtils.yaw_towards(direction)
+	_visual.rotation.y = lerp_angle(
+		_visual.rotation.y, target, clampf(turn_speed * delta, 0.0, 1.0)
+	)
+
+
+## Procedural strike used when the model has no attack clip: the body snaps forward and back.
+func _lunge() -> void:
+	if animator.play_action(&"slash"):
+		return
+	var tween := create_tween()
+	tween.tween_property(_visual, "position:y", 0.12, 0.08)
+	tween.tween_property(_visual, "position:y", 0.0, 0.16)
+
+
+## Procedural recoil used when the model has no hurt clip.
+func _flinch() -> void:
+	if animator.play_action(&"hurt"):
+		return
+	var tween := create_tween()
+	tween.tween_property(_visual, "rotation:x", -0.18, 0.06)
+	tween.tween_property(_visual, "rotation:x", 0.0, 0.18)
 
 
 func _die() -> void:
