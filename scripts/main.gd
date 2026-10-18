@@ -5,8 +5,12 @@ extends Node3D
 const WOLVES_REQUIRED := 2
 const REWARD_QI := 150.0
 const SPAWN_POINT := Vector3(0.0, 0.0, 8.0)
+const HALL_HEIGHT := 18.0
+const HALL_POSITION := Vector3(0.0, 0.0, -26.0)
+const HALL_DOOR_WIDTH := 4.0
+const WALL_THICKNESS := 0.6
 const BEAST_SPAWNS: Array[Vector3] = [
-	Vector3(-8.0, 0.0, -20.0),
+	Vector3(-16.0, 0.0, -18.0),
 	Vector3(12.0, 0.0, 4.0),
 	Vector3(-12.0, 0.0, 12.0),
 ]
@@ -107,7 +111,7 @@ func _build_ground() -> void:
 
 
 func _build_scenery() -> void:
-	_add_prop(HALL_MODEL, Vector3(0.0, 0.0, -16.0), 9.0, 0.0, true)
+	_add_hall(HALL_MODEL, HALL_POSITION, HALL_HEIGHT)
 	_add_prop(TREE_MODEL, Vector3(9.0, 0.0, -7.0), 7.0, 0.3, false)
 	_add_prop(TREE_MODEL, Vector3(-14.0, 0.0, -8.0), 5.0, 1.0, false)
 	_add_prop(TREE_MODEL, Vector3(15.0, 0.0, -20.0), 8.0, 2.2, false)
@@ -138,6 +142,59 @@ func _add_prop(scene: PackedScene, at: Vector3, height: float, yaw: float, solid
 		body.add_child(shape)
 		root.add_child(body)
 	return root
+
+
+## Places the sect hall as a walk-in building. Its shell is not solid: four walls enclose the
+## footprint, and the front wall has a doorway that faces the spawn point (towards +Z).
+func _add_hall(scene: PackedScene, at: Vector3, height: float) -> void:
+	var root := _add_prop(scene, at, height, 0.0, false)
+	var model := root.get_child(0) as Node3D
+	var bounds := model.transform * ModelUtils.local_bounds(model)
+	var body := StaticBody3D.new()
+	root.add_child(body)
+
+	var mid_x := bounds.get_center().x
+	var mid_z := bounds.get_center().z
+	var half_door := HALL_DOOR_WIDTH * 0.5
+	var wall_y := height * 0.5
+	var front_z := bounds.end.z - WALL_THICKNESS * 0.5
+	var left_width := mid_x - half_door - bounds.position.x
+	var right_width := bounds.end.x - (mid_x + half_door)
+	_add_wall(
+		body,
+		Vector3(mid_x, wall_y, bounds.position.z + WALL_THICKNESS * 0.5),
+		Vector3(bounds.size.x, height, WALL_THICKNESS)
+	)
+	var depth := bounds.size.z
+	_add_wall(
+		body,
+		Vector3(bounds.position.x + WALL_THICKNESS * 0.5, wall_y, mid_z),
+		Vector3(WALL_THICKNESS, height, depth)
+	)
+	_add_wall(
+		body,
+		Vector3(bounds.end.x - WALL_THICKNESS * 0.5, wall_y, mid_z),
+		Vector3(WALL_THICKNESS, height, depth)
+	)
+	_add_wall(
+		body,
+		Vector3(bounds.position.x + left_width * 0.5, wall_y, front_z),
+		Vector3(left_width, height, WALL_THICKNESS)
+	)
+	_add_wall(
+		body,
+		Vector3(bounds.end.x - right_width * 0.5, wall_y, front_z),
+		Vector3(right_width, height, WALL_THICKNESS)
+	)
+
+
+func _add_wall(body: StaticBody3D, centre: Vector3, size: Vector3) -> void:
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	shape.position = centre
+	body.add_child(shape)
 
 
 func _build_npcs() -> void:

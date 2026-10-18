@@ -149,3 +149,17 @@ func _test_scene_boots() -> void:
 	for beast in get_nodes_in_group("enemies"):
 		_check((beast as SpiritBeast).animator.has_clip(&"walk"), "spirit beast has a walk clip")
 		break
+	_test_hall_doorway()
+
+
+func _test_hall_doorway() -> void:
+	print("Sect hall")
+	var space := _main.get_world_3d().direct_space_state
+	var through_door := PhysicsRayQueryParameters3D.create(
+		Vector3(0.0, 1.0, -8.0), Vector3(0.0, 1.0, -30.0)
+	)
+	_check(space.intersect_ray(through_door).is_empty(), "the hall doorway is open")
+	var through_wall := PhysicsRayQueryParameters3D.create(
+		Vector3(-8.0, 1.0, -8.0), Vector3(-8.0, 1.0, -30.0)
+	)
+	_check(not space.intersect_ray(through_wall).is_empty(), "the hall front wall has collision")

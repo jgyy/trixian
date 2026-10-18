@@ -57,6 +57,57 @@ Approximate credit costs from the runs that produced the committed models:
 | Rig (`anim rig`) | 25 |
 | Each preset animation (`anim retarget`) | 10 |
 
+## UV re-unwrap and texture transfer
+
+Tripo's own unwrap splits clothing and skin into hundreds of small, stretched islands. About 15%
+of triangles are stretched more than 3:1, and the 512 px normal map shows up as grain when the
+camera gets close. `tools/rebake_textures.py` fixes this for each model:
+
+1. Unwraps the mesh with xatlas, which minimises stretch and pads charts by 4 px.
+2. Transfers the base colour, normal and metal/roughness maps from the old UVs to the new ones.
+   Each triangle keeps its index, so the old UV of any new texel is the barycentric blend of that
+   triangle's old corner UVs.
+3. Converts normals through the old and new tangent frames, then blurs them with a 2 px radius at
+   1024 px. The blur removes the baked grain and keeps the broad folds.
+4. Writes the GLB with new vertex buffers and images. Skins, animations and the material are
+   carried over unchanged.
+
+```mermaid
+flowchart LR
+    GLB["Tripo GLB<br/>old UVs, 512 normal,<br/>2048 base, 1024 metal/rough"] --> UNWRAP["xatlas unwrap<br/>stretch-minimising charts"]
+    UNWRAP --> MAP["Triangle map<br/>old corner UV to new corner UV"]
+    MAP --> BASE["Base colour<br/>sample old map at 2048"]
+    MAP --> NORM["Normal map<br/>old tangent to object to new tangent,<br/>blur 2 px at 1024"]
+    MAP --> MR["Metal/roughness<br/>sample old map at 1024"]
+    BASE --> OUT["Rebaked GLB<br/>new buffers, same skin and clips"]
+    NORM --> OUT
+    MR --> OUT
+```
+
+```bash
+pip install xatlas numpy pillow
+tools/rebake_textures.py assets/models/hero.glb .tripo-work/hero.glb
+```
+
+Measured on the hero model (the other characters and props show the same pattern):
+
+| Metric | Tripo UV | Rebaked |
+| --- | --- | --- |
+| Triangles stretched more than 3:1 | 14.2% | 1.3% |
+| 90th percentile stretch | 3.75 | 1.18 |
+| Texel density, 5th to 95th percentile (relative to median) | 0.60 to 1.64 | 0.95 to 1.17 |
+| Normal map | 512 px | 1024 px, blurred |
+
+The rebaked GLBs are 1.4 to 1.6 times the size of the Tripo originals, 36 MB in total instead of
+24 MB. Around 1,000 tiny triangles per
+character snap to a single texel during packing. They are too small to see, but they are a known
+limitation.
+
+![Before and after close-ups](texture-rebake/before_after_close_up.png)
+
+Before (top) is each model's Tripo UV layout. After (bottom) is the re-unwrapped layout with the
+transferred textures. Each pair is the same camera position.
+
 ## Rigging and animation
 
 - Biped characters are rigged with the v1.0 rig (`-p model=rig-v1.0`). Its `preset:biped:*`
@@ -76,7 +127,7 @@ Approximate credit costs from the runs that produced the committed models:
 | `hero` | Sect disciple Lin, NPC | cultivator in white and blue robes, sword, T-pose | gen `00bae8d2`, rig v1 `6c3b1aa4`, anim `8fde6909` (idle, walk, slash, hurt), convert `c6f3803d` | 30 + 25 + 40 + 10 |
 | `elder` | Elder Wen, quest giver | old Taoist master, long white beard, staff, T-pose | gen `1d8e57ed`, rig v1 `87888fad`, anim `1b1b0663` (idle, walk, greet), convert `d472aa1d` | 20 + 25 + 30 + 10 |
 | `demon_wolf` | Spirit beast enemy | demonic spirit wolf, red eyes, black qi aura | gen `a115f644`, rig v2 quadruped `2f2c99d6`, anim `eb0d61ed` (walk), convert `7c180481` | 20 + 25 + 10 + 10 |
-| `sect_hall` | Scenery, solid | sect temple hall, curved tile roof, red pillars | gen `b79bd7b5`, convert `c7c2c3ef` | 20 + 10 |
+| `sect_hall` | Scenery, walk-in (18 m tall) | sect temple hall, curved tile roof, red pillars | gen `b79bd7b5`, convert `c7c2c3ef` | 20 + 10 |
 | `spirit_tree` | Scenery | ancient spirit peach tree, pink blossoms | gen `757f9ef2`, convert `e71edc2f` | 20 + 10 |
 | `jade_rock` | Scenery, solid, glowing | glowing jade spirit stone emitting qi | gen `7bfb9e5e`, convert `98751661` | 20 + 10 |
 
@@ -104,6 +155,10 @@ Tripo's own renders of each generated mesh:
 - `ModelUtils.fit_to_height` scales each model to a target height in metres, so the source
   scale from Tripo does not matter.
 - Solid props get a box collider built from the same measured bounds.
+- The sect hall is fitted to 18 m, twice the height of the other scenery. Its single box
+  collider is replaced by four walls that enclose the footprint, with a 4 m doorway in the front
+  wall facing the spawn point. `main.gd` builds these walls in `_add_hall`, and a headless test
+  checks that the doorway is open and that the side wall still blocks.
 - Each model's front is aligned with `ModelUtils.FORWARD_OFFSET`. Change that constant if a
   new model faces the wrong way.
 - `CharacterAnimator` looks up clips by name, ignoring any prefix. A clip named `preset:biped:walk`

@@ -27,6 +27,8 @@ preset animations, and you play as a female cultivator.
 - **Quest.** Elder Wen sends you after two wolves and rewards you with qi when you return. Wolves
   slain before you accept the quest count towards it.
 - **Meet the sect.** Disciple Lin at the gate shares advice when you talk to her.
+- **Enter the sect hall.** The hall is twice the height of the other buildings and has a doorway
+  on its open side, so you can walk inside and look around.
 
 ## Controls
 
@@ -54,7 +56,7 @@ godot --path .                       # launch the game
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . --script res://tests/run_tests.gd   # 41 headless checks
+godot --headless --path . --script res://tests/run_tests.gd   # 43 headless checks
 pip install "gdtoolkit==4.5.0"
 gdlint scripts tests tools
 gdformat --check scripts tests tools
@@ -66,7 +68,9 @@ CI runs the same lint and test steps on every pull request. The workflow is in
 ## Generating assets with Tripo
 
 `tools/generate_assets.sh` regenerates the models with the Tripo CLI, including the rigging and
-animation steps. See [docs/asset-pipeline.md](docs/asset-pipeline.md) for the prompts, credit costs
+animation steps. `tools/rebake_textures.py` then re-unwraps each model's UVs and moves its textures
+into the new layout, which removes the stretched texture islands Tripo's own unwrap produces. See
+[docs/asset-pipeline.md](docs/asset-pipeline.md) for the prompts, credit costs, the rebake steps
 and the 2048 px texture export.
 
 ## Project layout
@@ -81,7 +85,7 @@ scripts/npc/         NPC interaction base
 scripts/world/       procedural valley decoration
 scripts/ui/          HUD
 tests/               headless test runner
-tools/               asset generation script and screenshot capture
+tools/               asset generation, UV rebake and screenshot capture scripts
 docs/                architecture, asset pipeline, screenshots
 ```
 
