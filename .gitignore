@@ -26,3 +26,6 @@ mono_crash.*.json
 
 # Working directory used by tools/generate_assets.sh
 .tripo-work/
+
+# Python bytecode from the asset tools
+__pycache__/

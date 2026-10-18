@@ -7,8 +7,22 @@ const REWARD_QI := 150.0
 const SPAWN_POINT := Vector3(0.0, 0.0, 8.0)
 const HALL_HEIGHT := 18.0
 const HALL_POSITION := Vector3(0.0, 0.0, -26.0)
-const HALL_DOOR_WIDTH := 4.0
-const WALL_THICKNESS := 0.6
+## Measured on the Tripo hall at 18 m, in the hall's own space (centre of the footprint, y = 0 on
+## the ground). The front and back stairs are 4.2 m wide and meet their terrace 10.25 m from the
+## centre at 1.75 m. The side stairs are 5.4 m wide and meet the side terrace 8.6 m from the centre
+## at 1.58 m. The east entry gallery is 3.6 m wide, and a ramp drops from it into the cella.
+const FRONT_STAIR_WIDTH := 4.2
+const FRONT_TERRACE_Z := 10.25
+const FRONT_TERRACE_Y := 1.75
+const SIDE_STAIR_WIDTH := 5.4
+const SIDE_TERRACE_X := 8.6
+const SIDE_TERRACE_Y := 1.58
+const ENTRY_WIDTH := 3.6
+const ENTRY_Z := -0.5
+const ENTRY_TOP_X := 3.0
+const ENTRY_TOP_Y := 1.75
+const CELLA_X := 0.5
+const RAMP_THICKNESS := 0.3
 const BEAST_SPAWNS: Array[Vector3] = [
 	Vector3(-16.0, 0.0, -18.0),
 	Vector3(12.0, 0.0, 4.0),
@@ -144,57 +158,116 @@ func _add_prop(scene: PackedScene, at: Vector3, height: float, yaw: float, solid
 	return root
 
 
-## Places the sect hall as a walk-in building. Its shell is not solid: four walls enclose the
-## footprint, and the front wall has a doorway that faces the spawn point (towards +Z).
+## Places the sect hall as a walk-in building. Its collision is built from the model's own
+## triangles, so the walls, pillars and terraces block the player where they are drawn. The stairs
+## are left out of that collision and replaced by ramps, because a capsule cannot climb their
+## risers. A stone ramp also drops from the east entry gallery into the cella.
 func _add_hall(scene: PackedScene, at: Vector3, height: float) -> void:
 	var root := _add_prop(scene, at, height, 0.0, false)
 	var model := root.get_child(0) as Node3D
-	var bounds := model.transform * ModelUtils.local_bounds(model)
 	var body := StaticBody3D.new()
 	root.add_child(body)
 
-	var mid_x := bounds.get_center().x
-	var mid_z := bounds.get_center().z
-	var half_door := HALL_DOOR_WIDTH * 0.5
-	var wall_y := height * 0.5
-	var front_z := bounds.end.z - WALL_THICKNESS * 0.5
-	var left_width := mid_x - half_door - bounds.position.x
-	var right_width := bounds.end.x - (mid_x + half_door)
-	_add_wall(
-		body,
-		Vector3(mid_x, wall_y, bounds.position.z + WALL_THICKNESS * 0.5),
-		Vector3(bounds.size.x, height, WALL_THICKNESS)
-	)
-	var depth := bounds.size.z
-	_add_wall(
-		body,
-		Vector3(bounds.position.x + WALL_THICKNESS * 0.5, wall_y, mid_z),
-		Vector3(WALL_THICKNESS, height, depth)
-	)
-	_add_wall(
-		body,
-		Vector3(bounds.end.x - WALL_THICKNESS * 0.5, wall_y, mid_z),
-		Vector3(WALL_THICKNESS, height, depth)
-	)
-	_add_wall(
-		body,
-		Vector3(bounds.position.x + left_width * 0.5, wall_y, front_z),
-		Vector3(left_width, height, WALL_THICKNESS)
-	)
-	_add_wall(
-		body,
-		Vector3(bounds.end.x - right_width * 0.5, wall_y, front_z),
-		Vector3(right_width, height, WALL_THICKNESS)
-	)
-
-
-func _add_wall(body: StaticBody3D, centre: Vector3, size: Vector3) -> void:
+	var concave := ConcavePolygonShape3D.new()
+	concave.backface_collision = true
+	concave.set_faces(_hall_faces(_find_mesh(model), root))
 	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = size
-	shape.shape = box
-	shape.position = centre
+	shape.shape = concave
 	body.add_child(shape)
+
+	var bounds := model.transform * ModelUtils.local_bounds(model)
+	for side in [1.0, -1.0]:
+		_add_ramp(
+			body,
+			Vector3(0.0, 0.0, side * bounds.end.z),
+			Vector3(0.0, FRONT_TERRACE_Y, side * FRONT_TERRACE_Z),
+			FRONT_STAIR_WIDTH,
+			false
+		)
+		_add_ramp(
+			body,
+			Vector3(side * bounds.end.x, 0.0, 0.0),
+			Vector3(side * SIDE_TERRACE_X, SIDE_TERRACE_Y, 0.0),
+			SIDE_STAIR_WIDTH,
+			false
+		)
+	_add_ramp(
+		body,
+		Vector3(CELLA_X, 0.0, ENTRY_Z),
+		Vector3(ENTRY_TOP_X, ENTRY_TOP_Y, ENTRY_Z),
+		ENTRY_WIDTH,
+		true
+	)
+
+
+## Triangles of the hall mesh in the hall's own space, leaving out the stairs.
+func _hall_faces(mesh_node: MeshInstance3D, root: Node3D) -> PackedVector3Array:
+	var to_root := root.global_transform.affine_inverse() * mesh_node.global_transform
+	var corners := mesh_node.mesh.get_faces()
+	var faces := PackedVector3Array()
+	for index in range(0, corners.size(), 3):
+		var a := to_root * corners[index]
+		var b := to_root * corners[index + 1]
+		var c := to_root * corners[index + 2]
+		if not _on_stairs((a + b + c) / 3.0):
+			faces.append_array([a, b, c])
+	return faces
+
+
+func _on_stairs(point: Vector3) -> bool:
+	var front := (
+		absf(point.x) <= FRONT_STAIR_WIDTH * 0.5 + 0.1
+		and absf(point.z) >= FRONT_TERRACE_Z - 0.05
+		and point.y <= FRONT_TERRACE_Y + 0.1
+	)
+	var side := (
+		absf(point.x) >= SIDE_TERRACE_X
+		and absf(point.x) <= SIDE_STAIR_WIDTH * 0.5 + 0.1 + SIDE_TERRACE_X
+		and absf(point.z) <= SIDE_STAIR_WIDTH * 0.5 + 0.15
+		and point.y <= SIDE_TERRACE_Y + 0.1
+	)
+	return front or side
+
+
+## A slab that runs from [param low] up to [param high]. Its width is measured across the slope.
+## A visible ramp also gets a stone mesh, because it has no Tripo geometry to stand in for it.
+func _add_ramp(
+	body: StaticBody3D, low: Vector3, high: Vector3, width: float, visible_surface: bool
+) -> void:
+	var slope := high - low
+	var box := BoxShape3D.new()
+	box.size = Vector3(width, RAMP_THICKNESS, slope.length())
+	var basis := Basis.looking_at(slope.normalized(), Vector3.UP)
+	var slab := Transform3D(basis, (low + high) * 0.5 - basis.y * RAMP_THICKNESS * 0.5)
+	var shape := CollisionShape3D.new()
+	shape.shape = box
+	shape.transform = slab
+	body.add_child(shape)
+	if visible_surface:
+		var stone := BoxMesh.new()
+		stone.size = box.size
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = stone
+		mesh.material_override = _stone_material()
+		mesh.transform = slab
+		body.add_child(mesh)
+
+
+func _stone_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.6, 0.58, 0.52)
+	material.roughness = 0.95
+	return material
+
+
+func _find_mesh(node: Node) -> MeshInstance3D:
+	if node is MeshInstance3D:
+		return node as MeshInstance3D
+	for child in node.get_children():
+		var found := _find_mesh(child)
+		if found != null:
+			return found
+	return null
 
 
 func _build_npcs() -> void:

@@ -240,6 +240,35 @@ with `ModelUtils.FORWARD_OFFSET`.
 GLB textures are embedded in the GLB. Godot's import setting `gltf/embedded_image_handling=2`
 compresses them into the imported scene, so no texture files are extracted next to the models.
 
+## Sect hall walk-in
+
+The hall's collision is its own mesh, so nothing sits outside the building or inside it. The
+stairs are the one exception: a capsule cannot climb their risers, so they are removed from the mesh
+and replaced by ramps. Each ramp is a slab that runs from the ground to the terrace it serves.
+
+```mermaid
+flowchart LR
+    glb["sect_hall.glb<br/>east doorway carved"] --> fit["ModelUtils.fit_to_height<br/>18 m, origin at the centre"]
+    fit --> tris["Triangles in hall space"]
+    tris --> test{"Centre on a stair?"}
+    test -- no --> concave["ConcavePolygonShape3D<br/>backface collision on"]
+    test -- yes --> dropped["Left out of the mesh"]
+    ramps["Ramps<br/>front and back stairs, side stairs,<br/>entry gallery to cella"] --> body["StaticBody3D"]
+    concave --> body
+    body --> cultivator["Cultivator capsule<br/>climbs and walks inside"]
+```
+
+The route from outside to the cella, and the heights along it, are fixed by the model:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Ground: spawn at the sect gate
+    Ground --> SideStairs: walk to the east side at z = 0
+    SideStairs --> EntryGallery: climb 1.58 m to the corridor
+    EntryGallery --> Cella: ramp down 1.75 m through the doorway
+    Cella --> [*]: 0 m floor, walls on every side
+```
+
 ## Testing and CI
 
 ```mermaid

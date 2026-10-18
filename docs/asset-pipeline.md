@@ -108,6 +108,25 @@ limitation.
 Before (top) is each model's Tripo UV layout. After (bottom) is the re-unwrapped layout with the
 transferred textures. Each pair is the same camera position.
 
+## Material tuning
+
+Tripo's metal/roughness map is almost fully rough. Its green channel (roughness) averages 0.91, and
+its blue channel (metallic) is noisy, averaging 0.13 with peaks in cloth and hair. Lit by the sun,
+the characters look like matte clay with dark metallic specks. glTF multiplies each factor by its
+map channel, so `tools/tune_character_materials.py` sets the factors and leaves the maps alone:
+
+```bash
+tools/tune_character_materials.py assets/models/hero.glb assets/models/hero.glb   # roughness 0.55, metallic 0
+```
+
+Effective roughness becomes 0.55 times the map, about 0.5, and metallic becomes 0. The four
+characters were tuned this way. Props and the hall keep their Tripo factors.
+
+![Before and after material tuning](screenshots/character_material_comparison.png)
+
+Left: Tripo's factors. Right: roughness 0.55 and metallic 0. Hair and the robe catch light and read
+as cloth.
+
 ## Rigging and animation
 
 - Biped characters are rigged with the v1.0 rig (`-p model=rig-v1.0`). Its `preset:biped:*`
@@ -155,10 +174,15 @@ Tripo's own renders of each generated mesh:
 - `ModelUtils.fit_to_height` scales each model to a target height in metres, so the source
   scale from Tripo does not matter.
 - Solid props get a box collider built from the same measured bounds.
-- The sect hall is fitted to 18 m, twice the height of the other scenery. Its single box
-  collider is replaced by four walls that enclose the footprint, with a 4 m doorway in the front
-  wall facing the spawn point. `main.gd` builds these walls in `_add_hall`, and a headless test
-  checks that the doorway is open and that the side wall still blocks.
+- The sect hall is fitted to 18 m, twice the height of the other scenery. Its collision is built
+  from the model's own triangles, minus the stairs, so the walls, pillars and terraces block the
+  player where they are drawn. Each flight of stairs is replaced by a ramp, and a stone ramp drops
+  from the east entry gallery into the cella. `main.gd` builds these in `_add_hall`, and the
+  headless tests check the east doorway, the cella wall, the entry ramp and the front terrace.
+- `tools/carve_hall_doorway.py` opens the east wall of the cella in the GLB itself. The carve is in
+  the model rather than in code, so the visible wall and its collision disappear together. The
+  constants at the top of `main.gd` were measured from the carved model at 18 m, so re-export the
+  hall with the same fit height or measure the new one.
 - Each model's front is aligned with `ModelUtils.FORWARD_OFFSET`. Change that constant if a
   new model faces the wrong way.
 - `CharacterAnimator` looks up clips by name, ignoring any prefix. A clip named `preset:biped:walk`
