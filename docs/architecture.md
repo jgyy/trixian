@@ -14,8 +14,10 @@ flowchart TD
     main --> ground["Ground + stone path"]
     main --> scenery["Scenery props<br/>walk-in sect hall, spirit trees, jade rocks"]
     main --> decor["ValleyDecor<br/>mountains, grass, flowers, pond,<br/>bamboo, lanterns, gate, braziers"]
-    main --> npcs["Npc x2<br/>Elder Wen (quest), Disciple Lin"]
-    main --> beasts["SpiritBeast x3<br/>demon wolves"]
+    main --> npcs["Npc x2<br/>Elder Wen (wolves, alpha), Disciple Lin (moon lotus)"]
+    main --> beasts["SpiritBeast x3<br/>demon wolves, respawn after 30 s"]
+    main -.-> alpha["SpiritBeast<br/>Demon Wolf Alpha, spawned by Elder Wen's second quest"]
+    main --> herbs["SpiritHerb x6<br/>moon lotuses"]
     main --> hud["Hud (CanvasLayer)"]
     main --> player["Cultivator (player)"]
     player --> visual["Visual (rigged female cultivator)"]
@@ -30,15 +32,16 @@ flowchart TD
 flowchart LR
     subgraph Core
         cultivation["Cultivation<br/>qi and realms"]
-        quest["WolfQuest<br/>accept, count, turn in"]
+        quest["CountQuest x3<br/>accept, count, turn in"]
         animator["CharacterAnimator<br/>clips and one-shot actions"]
-        model_utils["ModelUtils<br/>fit, bounds, yaw"]
+        model_utils["ModelUtils<br/>fit, bounds, yaw,<br/>Compatibility normal-map fix"]
         input_setup["InputSetup<br/>key bindings"]
     end
     subgraph Gameplay
         player["Cultivator"]
         beast["SpiritBeast"]
         npc["Npc"]
+        herb["SpiritHerb"]
     end
     decor["ValleyDecor<br/>procedural scenery"]
     main["Main<br/>wiring"]
@@ -60,7 +63,10 @@ flowchart LR
     player -- message / stats_changed / prompt_changed --> hud
     beast -- died(qi_reward) --> main
     npc -- talked --> main
-    main -- update_stats / set_quest --> hud
+    herb -- gathered --> main
+    player -- "interact() on the nearest interactable" --> npc
+    player -- "interact()" --> herb
+    main -- update_stats / set_quests --> hud
 ```
 
 ## Class overview
@@ -75,12 +81,20 @@ classDiagram
         +gain_qi(amount)
         +try_breakthrough() bool
     }
-    class WolfQuest {
+    class CountQuest {
         +Step step
-        +int slain
-        +record_kill()
+        +int done
+        +String giver
+        +String task
+        +record()
         +talk() float
         +objective_text() String
+    }
+    class SpiritHerb {
+        +String display_name
+        +float qi_reward
+        +prompt_text() String
+        +interact(player)
     }
     class CharacterAnimator {
         +play(state)
@@ -97,8 +111,10 @@ classDiagram
     }
     class SpiritBeast {
         +float hp
+        +Color aura
         +CharacterAnimator animator
         +take_damage(amount)
+        +is_dead() bool
     }
     class Npc {
         +String display_name
@@ -110,12 +126,14 @@ classDiagram
     }
     class Hud {
         +update_stats(hp, max_hp, realm, qi, qi_required, at_peak)
-        +set_quest(text, complete)
+        +set_quests(entries)
+        +quest_lines() PackedStringArray
         +show_message(text, duration)
     }
     class ModelUtils {
         <<static>>
         +fit_to_height(root, height) AABB
+        +fix_skinned_normal_maps(root, method) int
         +yaw_towards(direction) float
     }
     class ValleyDecor {
@@ -123,7 +141,9 @@ classDiagram
         +build(root)
     }
     class Main {
-        -WolfQuest _quest
+        -CountQuest _quest
+        -CountQuest _alpha_quest
+        -CountQuest _herb_quest
     }
     Cultivator *-- Cultivation : owns
     Cultivator *-- CharacterAnimator : drives
@@ -132,7 +152,9 @@ classDiagram
     Cultivator ..> SpiritBeast : strikes
     SpiritBeast ..> Cultivator : attacks
     Npc ..> Cultivator : interacts with
-    Main *-- WolfQuest : owns
+    Main *-- CountQuest : owns 3
+    Main o-- SpiritHerb
+    SpiritHerb ..> Cultivator : gathered by
     Main o-- Cultivator
     Main o-- SpiritBeast
     Main o-- Npc
@@ -140,21 +162,44 @@ classDiagram
     Main ..> ValleyDecor : builds
 ```
 
-## Quest state
+## Quests
 
-`WolfQuest` holds the rules, and `Main` shows the dialogue. Every wolf slain is counted, including
-wolves killed before the quest was accepted. Talking to Elder Wen accepts the quest and turns it in
-on the same visit when enough wolves are already slain.
+Each quest is a `CountQuest`: pure rules for accepting, counting and turning in, with the giver's
+name and the task in its objective. `Main` owns three and shows the dialogue. Everything counts,
+including what was done before the quest was accepted, and talking to the giver accepts the quest
+and turns it in on the same visit when the count is already met.
 
 ```mermaid
 stateDiagram-v2
     [*] --> NotStarted
-    NotStarted --> Active: talk to Elder Wen (accept)
-    NotStarted --> Complete: talk after 2 wolves slain (accept and turn in, +150 qi)
-    Active --> Active: talk before 2 wolves are slain
-    Active --> Complete: talk after 2 wolves are slain (+150 qi)
+    NotStarted --> Active: talk to the giver (accept)
+    NotStarted --> Complete: talk with the count already met (accept and turn in)
+    Active --> Active: talk before the count is met
+    Active --> Complete: talk after the count is met (reward)
     Complete --> [*]
 ```
+
+The three quests and what they pay:
+
+```mermaid
+flowchart LR
+    subgraph wen["Elder Wen"]
+        wolves["Wolves of the valley<br/>slay 2 demon wolves<br/>+150 qi"] --> alpha["The alpha<br/>talk again: the alpha appears behind the hall<br/>slay it, +300 qi"]
+    end
+    subgraph lin["Disciple Lin"]
+        lotus["Moon lotus<br/>gather 4 of the 6 lotuses, +10 qi each<br/>turn in, +120 qi"] --> advice["Her advice lines"]
+    end
+    kills["Each wolf slain<br/>+40 qi, respawns in 30 s"] --> wolves
+```
+
+The HUD lists Elder Wen's current hunt above Lin's lotus quest. A slain wolf of the pack returns to
+its den 30 s later, once the cultivator is at least 14 m away, so there is always qi to hunt for.
+The alpha is a `SpiritBeast` half as tall again as a wolf, with 220 health, a 16 damage bite and a
+red rim of qi drawn by an additive overlay shader; it does not respawn.
+
+Moon lotuses glow and carry a faint beam of qi so they can be found from across the valley. The
+cultivator's interact key talks to an NPC or gathers a lotus: both join the `interactables` group
+and share `prompt_text()` and `interact()`, and the nearest one within 3 m wins.
 
 ## Animation states
 
@@ -252,6 +297,34 @@ flowchart LR
     beast["SpiritBeast"] -- "yaw_towards(to_player)" --> yaw
 ```
 
+### Normal maps on the Compatibility renderer
+
+The game runs on Forward+, and Godot falls back to the Compatibility renderer (OpenGL 3) when
+Vulkan is missing. That renderer skins meshes in a transform-feedback pass that never binds the
+`TANGENT` attribute (`drivers/gles3/storage/mesh_storage.cpp` in 4.7.2), so every vertex of a
+skinned mesh comes out with the same tangent. A tangent-space normal map is then read in the wrong
+frame, and on the characters, whose UV charts all have their own tangent frames, faces broke into
+pale and dark patches. `ModelUtils.fix_skinned_normal_maps` turns the normal maps of skinned meshes
+off on that renderer only, which leaves the smooth vertex normals and the baked colour.
+
+```mermaid
+flowchart TD
+    model["Character GLB<br/>TANGENT per vertex, 2048 px normal map"] --> method{"Rendering method"}
+    method -- forward_plus / mobile --> fp["Skinned on the GPU with tangents<br/>normal map lit as baked"]
+    method -- gl_compatibility --> tf["Transform feedback skinning<br/>TANGENT never bound, one constant tangent"]
+    tf --> fix["fix_skinned_normal_maps<br/>override material, normal map off"]
+    fix --> clean["Smooth vertex normals<br/>and the 4096 px base colour"]
+```
+
+![Tangents of the skinned cultivator in both renderers](normal-fix/skinned_tangents.png)
+
+Left: `TANGENT` drawn as a colour on Forward+, one frame per UV chart as the file stores them.
+Right: the same on Compatibility, one colour everywhere.
+
+![The cultivator in the valley on the Compatibility renderer, before and after](normal-fix/in_game_compatibility.png)
+
+The cultivator in the valley on the Compatibility renderer, before and after.
+
 GLB textures are embedded in the GLB. Godot's import setting `gltf/embedded_image_handling=2`
 compresses them into the imported scene, so no texture files are extracted next to the models.
 
@@ -291,7 +364,7 @@ flowchart LR
     push["Push or pull request"] --> lint["lint job<br/>gdlint + gdformat --check"]
     push --> test["test job<br/>Godot 4.7.2 headless"]
     test --> import["godot --import"]
-    import --> run["run_tests.gd<br/>cultivation, quest, animation, model fitting,<br/>character rigs, scene boot, walking, hall"]
+    import --> run["run_tests.gd<br/>cultivation, quests, animation, model fitting,<br/>character rigs, scene boot, quest line, walking, hall"]
     lint --> result{"All checks pass?"}
     run --> result
 ```
@@ -301,7 +374,9 @@ faces +Z, that no vertex is pinned to the dummy `neutral_bone`, and that no tria
 6x in any of three poses of every clip. That last check skins the mesh on the CPU, so it catches
 the spikes and smeared textures that broken skin weights cause, which a screenshot would only show
 by eye. A walking check holds each movement key in turn and asserts that the cultivator ends up
-facing the way it moves.
+facing the way it moves. A quest-line check plays both quest givers through in the real scene:
+it gathers four lotuses and turns them in to Lin, slays two wolves for Elder Wen, takes the alpha
+quest, slays the alpha and checks the qi paid and the tracker at every step.
 
 Run the suite locally with:
 

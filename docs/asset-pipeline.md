@@ -265,8 +265,14 @@ to start with `No module named 'math'`: its embedded Python finds its standard l
 - The guard trades sharpness for safety on 0.3 to 3.8% of triangles, which are soft instead of
   wrong. Where the full model has a loose strand across a face, that triangle keeps the old,
   blurrier colour.
-- A dark vertical line runs down the face in the valley's light. It is there with the old model
-  too, so it comes from the lighting and not from the texture, and it was not investigated here.
+- A dark vertical line runs down the face in the valley's light. It stays with the normal map off,
+  with shadows off and with the sun hidden, it moves across the face when the cultivator turns, and
+  a plain sphere in the same spot shows it too. It comes from the sky's ambient light and not from
+  the model. It was seen with Mesa's software renderers (llvmpipe, lavapipe) and not checked on a
+  GPU.
+- The Compatibility renderer drops the tangents of skinned meshes, which made the faces patchy
+  there. The game turns the characters' normal maps off on that renderer; see
+  [Normal maps on the Compatibility renderer](architecture.md#normal-maps-on-the-compatibility-renderer).
 - Props still use the 2048 px export. The sect hall, spirit tree and jade rock are seen from a
   distance, and the same bake would work if they were ever seen close up.
 
