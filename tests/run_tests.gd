@@ -278,7 +278,8 @@ func _check_rig(label: String, scene: PackedScene, clips: Array[String]) -> void
 	model.free()
 
 
-## The albedo is sharp, there is a normal map, and the head has its own dense share of the atlas.
+## The albedo is sharp, there is a normal map, the head has its own dense share of the atlas, and
+## the cel shader carries the albedo over.
 func _check_textures(label: String, mesh_instance: MeshInstance3D, arrays: Array) -> void:
 	var material := mesh_instance.mesh.surface_get_material(0) as StandardMaterial3D
 	var albedo := material.albedo_texture
@@ -299,21 +300,26 @@ func _check_textures(label: String, mesh_instance: MeshInstance3D, arrays: Array
 			% [label, ratio, MIN_HEAD_DENSITY_RATIO]
 		)
 	)
-	var fixed := ModelUtils.fix_skinned_normal_maps(mesh_instance.get_parent(), "gl_compatibility")
-	var override := mesh_instance.get_surface_override_material(0) as BaseMaterial3D
+	var styled := ModelUtils.apply_anime_style(mesh_instance.get_parent())
+	var override := mesh_instance.get_surface_override_material(0) as ShaderMaterial
 	_check(
-		fixed == 1 and override != null and not override.normal_enabled,
-		(
-			"%s drops its normal map on the Compatibility renderer, which loses skinned tangents"
-			% label
-		)
+		styled == 1 and override != null and override.shader == ModelUtils.ANIME_TOON_SHADER,
+		"%s is cel shaded instead of glossy PBR" % label
 	)
-	_check(material.normal_enabled, "%s keeps its normal map in the shared material" % label)
+	_check(
+		override != null and override.get_shader_parameter("albedo_texture") == albedo,
+		"%s keeps its sharp albedo under the cel shader" % label
+	)
+	var outline := override.next_pass as ShaderMaterial if override != null else null
+	_check(
+		outline != null and outline.shader == ModelUtils.ANIME_OUTLINE_SHADER,
+		"%s has an ink outline pass" % label
+	)
+	_check(
+		mesh_instance.mesh.surface_get_material(0) == material,
+		"%s leaves the shared material untouched" % label
+	)
 	mesh_instance.set_surface_override_material(0, null)
-	_check(
-		ModelUtils.fix_skinned_normal_maps(mesh_instance.get_parent(), "forward_plus") == 0,
-		"%s keeps its normal map on Forward+" % label
-	)
 
 
 ## Whether each vertex follows a head joint more than any other joint.
@@ -449,9 +455,29 @@ func _test_scene_boots() -> void:
 	for beast in get_nodes_in_group("enemies"):
 		_check((beast as SpiritBeast).animator.has_clip(&"run"), "spirit beast has a run clip")
 		break
+	_check_cel_shaded()
 	_test_hall_walk_in()
 	if player != null:
 		_test_quest_line(player)
+
+
+## Every character in the valley wears the cel shader, not Tripo's glossy PBR material.
+func _check_cel_shaded() -> void:
+	var characters: Array[Node] = []
+	for group in ["player", "enemies", "npcs"]:
+		characters.append_array(get_nodes_in_group(group))
+	var glossy := 0
+	for character in characters:
+		for node in character.find_children("*", "MeshInstance3D", true, false):
+			var mesh_instance := node as MeshInstance3D
+			for surface in mesh_instance.mesh.get_surface_count():
+				var material := mesh_instance.get_active_material(surface) as ShaderMaterial
+				if material == null or material.shader != ModelUtils.ANIME_TOON_SHADER:
+					glossy += 1
+	_check(
+		glossy == 0,
+		"all %d characters are cel shaded (%d glossy surfaces)" % [characters.size(), glossy]
+	)
 
 
 ## Plays both quest lines through the real scene: Lin's herbs, Elder Wen's wolves, then the alpha.

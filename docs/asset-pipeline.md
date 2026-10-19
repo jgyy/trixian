@@ -271,12 +271,16 @@ to start with `No module named 'math'`: its embedded Python finds its standard l
   the model. It was seen with Mesa's software renderers (llvmpipe, lavapipe) and not checked on a
   GPU.
 - The Compatibility renderer drops the tangents of skinned meshes, which made the faces patchy
-  there. The game turns the characters' normal maps off on that renderer; see
+  there. The game's cel shader does not read normal maps at all; see
   [Normal maps on the Compatibility renderer](architecture.md#normal-maps-on-the-compatibility-renderer).
 - Props still use the 2048 px export. The sect hall, spirit tree and jade rock are seen from a
   distance, and the same bake would work if they were ever seen close up.
 
 ## Material tuning
+
+In the game the models are drawn with an anime cel shader that keeps only the albedo (see
+[Anime cel shading](architecture.md#anime-cel-shading)), so the factors below matter only where the
+GLB is viewed as it is, in Blender or a glTF viewer.
 
 Tripo's metal/roughness map is almost fully rough. Its green channel (roughness) averages 0.91, and
 its blue channel (metallic) is noisy, averaging 0.13 with peaks in cloth and hair. Lit by the sun,

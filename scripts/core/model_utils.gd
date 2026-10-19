@@ -6,6 +6,10 @@ extends RefCounted
 ## Yaw correction applied to visuals so that a model's front faces its heading. Every character
 ## model is repaired to face +Z, the glTF front (tools/fix_character_rig.py), so none is needed.
 const FORWARD_OFFSET := 0.0
+## Ink outline width in metres for a character-sized model.
+const OUTLINE_WIDTH := 0.004
+const ANIME_TOON_SHADER := preload("res://shaders/anime_toon.gdshader")
+const ANIME_OUTLINE_SHADER := preload("res://shaders/anime_outline.gdshader")
 
 
 ## Scales [param root] uniformly so its visible height equals [param target_height],
@@ -36,32 +40,49 @@ static func local_bounds(root: Node3D) -> AABB:
 	return merged
 
 
-## Works around a Godot bug in the Compatibility renderer, which is also where Forward+ falls back
-## to when Vulkan is missing. Its skinning pass never binds the TANGENT attribute
-## (drivers/gles3/storage/mesh_storage.cpp, 4.7.2), so every skinned vertex gets the same tangent
-## and a tangent-space normal map is read in the wrong frame: faces break into pale and dark
-## patches along the UV charts. On that renderer the normal maps of skinned meshes are turned off,
-## which leaves the smooth vertex normals and the baked colour. Other renderers keep the maps.
-## Returns how many materials were changed.
-static func fix_skinned_normal_maps(
-	root: Node, rendering_method := RenderingServer.get_current_rendering_method()
-) -> int:
-	if rendering_method != "gl_compatibility":
-		return 0
+## Gives every mesh under [param root] the anime cel-shading material: two hard-edged tones of
+## light, no specular, a sharpened and more saturated albedo, a rim of light and an ink outline in
+## a second pass (shaders/anime_toon.gdshader, shaders/anime_outline.gdshader). Tripo's PBR
+## materials make cloth and skin look glossy and smudged, like an oil painting.
+## The albedo texture and colour are carried over; normal and roughness maps are dropped, which
+## also sidesteps the Compatibility renderer's skinning pass, which never binds the TANGENT
+## attribute (drivers/gles3/storage/mesh_storage.cpp, 4.7.2) and broke normal-mapped faces into
+## patches. The shared materials are left untouched; each surface gets an override.
+## Returns how many surfaces were restyled.
+static func apply_anime_style(root: Node, outline_width := OUTLINE_WIDTH) -> int:
 	var changed := 0
 	for node in root.find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := node as MeshInstance3D
-		if mesh_instance.skin == null or mesh_instance.mesh == null:
+		if mesh_instance.mesh == null:
 			continue
 		for surface in mesh_instance.mesh.get_surface_count():
-			var material := mesh_instance.get_active_material(surface) as BaseMaterial3D
-			if material == null or not material.normal_enabled:
+			var source := mesh_instance.get_active_material(surface) as BaseMaterial3D
+			if source == null:
 				continue
-			var copy := material.duplicate() as BaseMaterial3D
-			copy.normal_enabled = false
-			mesh_instance.set_surface_override_material(surface, copy)
+			mesh_instance.set_surface_override_material(
+				surface, anime_material(source, outline_width)
+			)
 			changed += 1
 	return changed
+
+
+## The cel-shading material for one Tripo [param source] material, with its outline as the next
+## pass. An [param outline_width] of zero leaves the outline out.
+static func anime_material(
+	source: BaseMaterial3D, outline_width := OUTLINE_WIDTH
+) -> ShaderMaterial:
+	var toon := ShaderMaterial.new()
+	toon.shader = ANIME_TOON_SHADER
+	toon.set_shader_parameter("albedo_texture", source.albedo_texture)
+	toon.set_shader_parameter("albedo_color", source.albedo_color)
+	if outline_width > 0.0:
+		var outline := ShaderMaterial.new()
+		outline.shader = ANIME_OUTLINE_SHADER
+		outline.set_shader_parameter("albedo_texture", source.albedo_texture)
+		outline.set_shader_parameter("albedo_color", source.albedo_color)
+		outline.set_shader_parameter("outline_width", outline_width)
+		toon.next_pass = outline
+	return toon
 
 
 ## Yaw (radians) that turns a model's front towards [param direction] on the XZ plane.
