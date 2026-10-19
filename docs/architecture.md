@@ -36,6 +36,7 @@ flowchart LR
         animator["CharacterAnimator<br/>clips and one-shot actions"]
         model_utils["ModelUtils<br/>fit, bounds, yaw,<br/>anime cel shading"]
         input_setup["InputSetup<br/>key bindings"]
+        shade_probe["SunShadeProbe<br/>character in or out of shade"]
     end
     subgraph Gameplay
         player["Cultivator"]
@@ -54,6 +55,9 @@ flowchart LR
     beast -- uses --> model_utils
     npc -- uses --> animator
     npc -- uses --> model_utils
+    player -- carries --> shade_probe
+    beast -- carries --> shade_probe
+    npc -- carries --> shade_probe
     main -- owns --> quest
     main -- registers --> input_setup
     main -- builds --> decor
@@ -331,6 +335,43 @@ flowchart TD
 - **Ink lines.** The outline is an inverted hull, pushed out along the view-space normal by a width
   in metres, so it thins with distance. It is also pushed 3 cm away from the camera, so it draws
   around the silhouette but not through the layered collars, sleeves and hair in front of it.
+
+### Clean cel shadows: normals and self-shadowing
+
+The first cut of the cel shader cut jagged wedges and blotches across faces. Rendering the face
+with the shading split into its parts showed two causes, and ruled out the UVs: a UV checker
+shows fragmented charts, but the shade shapes do not follow them, because lighting never reads UVs.
+
+- **Mesh normals.** Tripo's decimated mesh has noisy, faceted normals: on the cultivator 43% of
+  edges turned more than 32 degrees from one end to the other. The two-tone edge sits where N.L
+  crosses a threshold, so it zigzagged along triangle edges. `tools/anime_normals.py` welds the
+  vertices that UV seams split, rebuilds area-weighted smooth normals, relaxes them over their
+  neighbours, and bends the head's normals 60% of the way towards an ellipsoid fitted around it,
+  the usual anime trick, so a face shades as one shape. Only the NORMAL bytes of the GLBs change.
+  The share of sharp edges drops to 12 to 22%, and the tests hold it under 25%.
+- **Self-shadowing.** Thin hair strands and sleeves cast ragged blotches through the shadow map,
+  which two-tone shading turned into hard black shapes. Characters no longer take the shadow map
+  (`self_shadows` off). A `SunShadeProbe` on each character casts one ray from the chest towards
+  the sun every physics frame; if the hall, a tree or a rock is in the way, the whole character
+  fades into its shade tone over a quarter of a second. Other characters do not count. Scenery
+  keeps its shadow map, and characters still cast shadows onto it.
+
+```mermaid
+flowchart TD
+    edge["Jagged cel shade on faces"] --> q1{"Follows triangle edges<br/>with cast shadows off?"}
+    q1 -- yes --> normals["Faceted mesh normals<br/>43% of edges turn > 32 degrees"]
+    normals --> tool["tools/anime_normals.py<br/>weld, smooth, relax,<br/>head bent to an ellipsoid"]
+    edge --> q2{"Blotches only with<br/>cast shadows on?"}
+    q2 -- yes --> self["Hair and sleeves<br/>shadow the face"]
+    self --> probe["self_shadows off<br/>SunShadeProbe: one ray to the sun<br/>whole character in or out of shade"]
+    edge --> q3{"Follows the UV checker?"}
+    q3 -- no --> uv["UVs are not the cause"]
+```
+
+![Faces before and after the normal and shadow fix](anime-style/shadow_fix.png)
+
+Columns: the cultivator and Disciple Lin, each lit and then with normals drawn as colour. Top:
+Tripo's normals with the shadow map. Bottom: the rewritten normals without self-shadowing.
 
 ### Normal maps on the Compatibility renderer
 

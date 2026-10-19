@@ -47,6 +47,14 @@ skin and cloth look smudged, like an oil painting. Bottom: the cel shader, with 
 of light, no gloss, a sharpened and more saturated albedo, a rim light and ink outlines.
 [Anime cel shading](docs/architecture.md#anime-cel-shading) explains how it works.
 
+![Faces before and after the normal and shadow fix](docs/anime-style/shadow_fix.png)
+
+The first cut of the shader drew jagged shade wedges and hair-shadow blotches across faces. The
+mesh normals were the cause, not the UVs: Tripo's decimated mesh has faceted normals, which
+`tools/anime_normals.py` smooths, bending the head towards an ellipsoid. Characters also no longer
+shadow themselves; one ray to the sun decides whether the whole character stands in shade. See
+[Clean cel shadows](docs/architecture.md#clean-cel-shadows-normals-and-self-shadowing).
+
 ### Faces, before and after the texture bake
 
 ![The cultivator's face in the valley, before and after](docs/texture-fix/in_game_face.png)
@@ -120,7 +128,7 @@ godot --path .                       # launch the game
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . --script res://tests/run_tests.gd   # 140 headless checks
+godot --headless --path . --script res://tests/run_tests.gd   # 147 headless checks
 pip install "gdtoolkit==4.5.0"
 gdlint scripts tests tools
 gdformat --check scripts tests tools
@@ -137,6 +145,7 @@ stretched texture islands Tripo's own unwrap produces. For the characters it als
 nine times the texture area and bakes every map from Tripo's full-size 4096 px model in Blender
 (`tools/bake_hires_maps.py`), so faces stay sharp when you zoom in. `tools/repair_character.sh NAME`
 runs the whole character chain.
+`tools/anime_normals.py` smooths the characters' normals for the cel shader.
 `tools/tune_character_materials.py` sets the characters' material factors so they read as cloth and
 skin rather than clay, and `tools/fix_character_rig.py` turns each character to face +Z, re-skins
 its pinned vertices, smooths the weights that tear and replaces Tripo's preset clips with short

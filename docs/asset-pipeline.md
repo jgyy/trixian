@@ -39,7 +39,7 @@ sequenceDiagram
 
 ## After Tripo: the order of the repair steps
 
-Each Tripo GLB goes through up to three offline steps before it is committed. They all read and
+Each Tripo GLB goes through up to four offline steps before it is committed. They all read and
 write plain GLBs and need no account.
 
 ```mermaid
@@ -48,13 +48,16 @@ flowchart LR
     full["Full-size animated GLB<br/>1.4M triangles, 4096 px"] -. characters .-> rebake
     rebake --> tune["tune_character_materials.py<br/>roughness 0.55, metallic 0"]
     tune --> fix["fix_character_rig.py<br/>facing, bind pose, weights, clips"]
-    fix --> repo["assets/models/NAME.glb"]
+    fix --> normals["anime_normals.py<br/>smooth normals, head ellipsoid"]
+    normals --> repo["assets/models/NAME.glb"]
     rebake -. props .-> repo
 ```
 
 Props only need the rebake, and it moves their 2048 px maps into the new layout. Characters need all
-three, in this order, and are baked from the full-size model. The rig repair refuses to run twice
-on the same file. `tools/repair_character.sh NAME` runs the three steps for one character.
+four, in this order, and are baked from the full-size model. The rig repair refuses to run twice
+on the same file. The normal rewrite only touches the NORMAL bytes; a second run smooths a little further, so run it once; see
+[Clean cel shadows](architecture.md#clean-cel-shadows-normals-and-self-shadowing).
+`tools/repair_character.sh NAME` runs the four steps for one character.
 
 ## Regenerating
 
