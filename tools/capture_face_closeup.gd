@@ -87,6 +87,7 @@ func _load_model() -> void:
 		_model = document.generate_scene(state) as Node3D
 	root.add_child(_model)
 	ModelUtils.fit_to_height(_model, HEIGHT)
+	ModelUtils.fix_skinned_normal_maps(_model)
 	var player := _model.find_children("*", "AnimationPlayer", true, false)[0] as AnimationPlayer
 	for clip in player.get_animation_list():
 		if String(clip).ends_with("idle"):
@@ -118,4 +119,6 @@ func _capture_cell() -> void:
 		Rect2i((image.get_width() - side) / 2, (image.get_height() - side) / 2, side, side)
 	)
 	crop.resize(CELL, CELL, Image.INTERPOLATE_LANCZOS)
+	# The viewport is RGBA on some renderers, and blit_rect needs matching formats.
+	crop.convert(Image.FORMAT_RGB8)
 	_sheet.blit_rect(crop, Rect2i(0, 0, CELL, CELL), Vector2i(CELL * _column, CELL * _row))

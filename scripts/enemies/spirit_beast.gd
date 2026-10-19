@@ -5,6 +5,18 @@ extends CharacterBody3D
 
 signal died(qi_reward: float)
 
+## The alpha's aura: a glowing rim that is brightest where the surface turns from the camera.
+const AURA_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_back, depth_draw_never;
+uniform vec4 aura : source_color;
+void fragment() {
+	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
+	ALBEDO = aura.rgb;
+	ALPHA = aura.a * (0.04 + 0.96 * rim * rim);
+}
+"""
+
 @export var height := 1.2
 @export var max_hp := 60.0
 @export var move_speed := 3.2
@@ -16,6 +28,9 @@ signal died(qi_reward: float)
 @export var bite_delay := 0.25
 @export var qi_reward := 40.0
 @export var turn_speed := 8.0
+## A colour laid over the model, with its alpha as the strength. The alpha of the pack glows red.
+@export var aura := Color(0.0, 0.0, 0.0, 0.0)
+@export var display_name := "Demon wolf"
 
 ## Tripo model for the beast. Assigned before the node enters the tree.
 var model_scene: PackedScene
@@ -37,7 +52,10 @@ func _ready() -> void:
 	var model := model_scene.instantiate() as Node3D
 	_visual.add_child(model)
 	ModelUtils.fit_to_height(model, height)
+	ModelUtils.fix_skinned_normal_maps(model)
 	animator = CharacterAnimator.new(model)
+	if aura.a > 0.0:
+		_apply_aura(model)
 
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
@@ -126,6 +144,28 @@ func _flinch() -> void:
 	var tween := create_tween()
 	tween.tween_property(_visual, "rotation:x", -0.18, 0.06)
 	tween.tween_property(_visual, "rotation:x", 0.0, 0.18)
+
+
+func is_dead() -> bool:
+	return _dead
+
+
+## A glowing rim in [member aura] over the model's own textures, brightest where the surface
+## turns away from the camera, and a light of the same colour.
+func _apply_aura(model: Node3D) -> void:
+	var shader := Shader.new()
+	shader.code = AURA_SHADER
+	var overlay := ShaderMaterial.new()
+	overlay.shader = shader
+	overlay.set_shader_parameter("aura", aura)
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).material_overlay = overlay
+	var glow := OmniLight3D.new()
+	glow.light_color = Color(aura, 1.0)
+	glow.light_energy = 1.5
+	glow.omni_range = height * 2.5
+	glow.position.y = height * 0.6
+	add_child(glow)
 
 
 func _die() -> void:

@@ -18,9 +18,11 @@ var _line_index := 0
 
 func _ready() -> void:
 	add_to_group("npcs")
+	add_to_group("interactables")
 	var model := model_scene.instantiate() as Node3D
 	add_child(model)
 	ModelUtils.fit_to_height(model, height)
+	ModelUtils.fix_skinned_normal_maps(model)
 	animator = CharacterAnimator.new(model)
 	animator.play(&"idle")
 

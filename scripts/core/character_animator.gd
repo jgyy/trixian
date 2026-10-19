@@ -51,6 +51,10 @@ func play_action(state: StringName) -> bool:
 	var clip := _resolve(state)
 	if _player == null or clip == &"":
 		return false
+	# AnimationPlayer.play() carries on from where it is when the clip is already playing, so a
+	# second strike inside the first one's clip would land with no swing. Start it over instead.
+	if _player.current_animation == String(clip):
+		_player.stop()
 	_action_playing = true
 	_player.play(clip, ACTION_BLEND_TIME)
 	return true

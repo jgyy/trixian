@@ -28,6 +28,24 @@ const BEAST_SPAWNS: Array[Vector3] = [
 	Vector3(12.0, 0.0, 4.0),
 	Vector3(-12.0, 0.0, 12.0),
 ]
+## Seconds before a slain wolf of the pack returns to its den, and how far away the cultivator
+## must be for it to come back, so a wolf never appears beside her.
+const RESPAWN_SECONDS := 30.0
+const RESPAWN_CLEARANCE := 14.0
+## The alpha waits behind the hall once Elder Wen asks for it. Bigger, tougher and worth more.
+const ALPHA_SPAWN := Vector3(-14.0, 0.0, -38.0)
+const ALPHA_REWARD_QI := 300.0
+const HERBS_REQUIRED := 4
+const HERB_REWARD_QI := 120.0
+## Moon lotuses: by the pond, in the bamboo grove, under the spirit trees and behind the hall.
+const HERB_SPOTS: Array[Vector3] = [
+	Vector3(9.6, 0.0, 6.8),
+	Vector3(-17.2, 0.0, 0.6),
+	Vector3(-13.0, 0.0, -10.4),
+	Vector3(16.8, 0.0, -17.6),
+	Vector3(-21.0, 0.0, 6.4),
+	Vector3(6.0, 0.0, -40.0),
+]
 const DISCIPLE_LINES: PackedStringArray = [
 	"Disciple Lin: The sect gate stands open to every cultivator who walks this path.",
 	"Disciple Lin: Keep your qi calm. A troubled mind draws the demon wolves.",
@@ -45,7 +63,12 @@ const ROCK_MODEL := preload("res://assets/models/jade_rock.glb")
 var _player: Cultivator
 var _hud: Hud
 var _elder: Npc
-var _quest := WolfQuest.new(WOLVES_REQUIRED, REWARD_QI)
+var _quest := CountQuest.new(WOLVES_REQUIRED, REWARD_QI, "Elder Wen", "Slay demon wolves")
+var _alpha_quest := CountQuest.new(1, ALPHA_REWARD_QI, "Elder Wen", "Slay the Demon Wolf Alpha")
+var _herb_quest := CountQuest.new(
+	HERBS_REQUIRED, HERB_REWARD_QI, "Disciple Lin", "Gather moon lotus"
+)
+var _disciple: Npc
 
 
 func _ready() -> void:
@@ -55,6 +78,7 @@ func _ready() -> void:
 	_build_scenery()
 	_build_npcs()
 	_build_enemies()
+	_build_herbs()
 	_hud = Hud.new()
 	add_child(_hud)
 	_build_player()
@@ -275,10 +299,10 @@ func _build_npcs() -> void:
 	_elder.rotation.y = ModelUtils.yaw_towards(SPAWN_POINT - _elder.position)
 	_elder.talked.connect(_on_npc_talked)
 
-	var disciple := _add_npc(DISCIPLE_MODEL, "Disciple Lin", Vector3(-4.5, 0.0, 4.0), 1.8)
-	disciple.lines = DISCIPLE_LINES
-	disciple.rotation.y = ModelUtils.yaw_towards(SPAWN_POINT - disciple.position)
-	disciple.talked.connect(_on_npc_talked)
+	_disciple = _add_npc(DISCIPLE_MODEL, "Disciple Lin", Vector3(-4.5, 0.0, 4.0), 1.8)
+	_disciple.lines = DISCIPLE_LINES
+	_disciple.rotation.y = ModelUtils.yaw_towards(SPAWN_POINT - _disciple.position)
+	_disciple.talked.connect(_on_npc_talked)
 
 
 func _add_npc(model: PackedScene, npc_name: String, at: Vector3, height: float) -> Npc:
@@ -293,11 +317,45 @@ func _add_npc(model: PackedScene, npc_name: String, at: Vector3, height: float) 
 
 func _build_enemies() -> void:
 	for spawn in BEAST_SPAWNS:
-		var beast := SpiritBeast.new()
-		beast.model_scene = WOLF_MODEL
-		beast.position = spawn
-		beast.died.connect(_on_beast_died)
-		add_child(beast)
+		_spawn_wolf(spawn)
+
+
+func _spawn_wolf(spawn: Vector3) -> SpiritBeast:
+	var beast := SpiritBeast.new()
+	beast.model_scene = WOLF_MODEL
+	beast.position = spawn
+	beast.died.connect(_on_beast_died.bind(spawn))
+	add_child(beast)
+	return beast
+
+
+## The alpha of the pack: half as tall again as a wolf, nearly four times its health and a
+## harder bite. It only appears once Elder Wen asks for it, and it does not come back.
+func _spawn_alpha() -> SpiritBeast:
+	var alpha := SpiritBeast.new()
+	alpha.model_scene = WOLF_MODEL
+	alpha.display_name = "Demon Wolf Alpha"
+	alpha.position = ALPHA_SPAWN
+	alpha.height = 1.9
+	alpha.max_hp = 220.0
+	alpha.attack_damage = 16.0
+	alpha.attack_range = 2.8
+	alpha.move_speed = 3.8
+	alpha.detect_range = 15.0
+	alpha.qi_reward = 0.0
+	alpha.aura = Color(1.0, 0.12, 0.05, 0.9)
+	alpha.add_to_group("alpha")
+	alpha.died.connect(_on_alpha_died)
+	add_child(alpha)
+	return alpha
+
+
+func _build_herbs() -> void:
+	for spot in HERB_SPOTS:
+		var herb := SpiritHerb.new()
+		herb.position = spot
+		herb.gathered.connect(_on_herb_gathered)
+		add_child(herb)
 
 
 func _build_player() -> void:
@@ -312,33 +370,111 @@ func _build_player() -> void:
 
 
 func _on_npc_talked(npc: Npc) -> void:
-	if npc != _elder:
+	if npc == _elder:
+		if _quest.step == CountQuest.Step.COMPLETE:
+			_talk_alpha_quest()
+		else:
+			_talk_wolf_quest()
+	elif npc == _disciple:
+		_talk_herb_quest()
+	else:
 		_hud.show_message(npc.next_line(), 5.0)
-		return
-	var accepting := _quest.step == WolfQuest.Step.NOT_STARTED
+	_refresh_quest()
+	_refresh_hud()
+
+
+func _talk_wolf_quest() -> void:
+	var accepting := _quest.step == CountQuest.Step.NOT_STARTED
 	var reward := _quest.talk()
 	if reward > 0.0:
 		_player.cultivation.gain_qi(reward)
-		_hud.show_message("Elder Wen: Well done. Take this qi from the sect's reserves.", 6.0)
+		_hud.show_message(
+			"Elder Wen: Well done. Take this qi from the sect's reserves. Speak with me again.", 6.0
+		)
 	elif accepting:
 		_hud.show_message(
 			"Elder Wen: Demon wolves stalk the valley. Slay %d and return to me." % WOLVES_REQUIRED,
 			6.0
 		)
-	elif _quest.step == WolfQuest.Step.ACTIVE:
+	else:
+		_hud.show_message("Elder Wen: %s remain." % _count_text(_quest, "beast", "beasts"))
+
+
+func _talk_alpha_quest() -> void:
+	var accepting := _alpha_quest.step == CountQuest.Step.NOT_STARTED
+	var reward := _alpha_quest.talk()
+	if reward > 0.0:
+		_player.cultivation.gain_qi(reward)
+		_hud.show_message("Elder Wen: The pack is leaderless. The sect owes you a great debt.", 6.0)
+	elif accepting:
+		_spawn_alpha()
 		_hud.show_message(
-			"Elder Wen: %d more beasts remain." % (WOLVES_REQUIRED - _quest.progress())
+			"Elder Wen: Their alpha prowls behind the hall, wreathed in red qi. End it.", 6.0
 		)
+	elif _alpha_quest.step == CountQuest.Step.ACTIVE:
+		_hud.show_message("Elder Wen: The alpha still lives, behind the hall.")
 	else:
 		_hud.show_message("Elder Wen: Walk the path of immortality, cultivator.")
-	_refresh_quest()
-	_refresh_hud()
 
 
-func _on_beast_died(qi_reward: float) -> void:
-	_quest.record_kill()
+func _talk_herb_quest() -> void:
+	if _herb_quest.step == CountQuest.Step.COMPLETE:
+		_hud.show_message(_disciple.next_line(), 5.0)
+		return
+	var accepting := _herb_quest.step == CountQuest.Step.NOT_STARTED
+	var reward := _herb_quest.talk()
+	if reward > 0.0:
+		_player.cultivation.gain_qi(reward)
+		_hud.show_message("Disciple Lin: Moon lotus! The elders will brew pills from these.", 6.0)
+	elif accepting:
+		(
+			_hud
+			. show_message(
+				(
+					"Disciple Lin: Moon lotuses glow by the pond, the bamboo and the trees. Bring me %d."
+					% HERBS_REQUIRED
+				),
+				6.0
+			)
+		)
+	else:
+		_hud.show_message("Disciple Lin: %s to go." % _count_text(_herb_quest, "lotus", "lotuses"))
+
+
+## "1 more beast" or "2 more beasts": what is left of [param quest].
+static func _count_text(quest: CountQuest, one: String, many: String) -> String:
+	var remaining := quest.required - quest.progress()
+	return "%d more %s" % [remaining, one if remaining == 1 else many]
+
+
+func _on_beast_died(qi_reward: float, spawn: Vector3) -> void:
+	_quest.record()
 	_player.cultivation.gain_qi(qi_reward)
 	_hud.show_message("Spirit beast slain. +%d qi." % int(qi_reward))
+	_refresh_quest()
+	_refresh_hud()
+	_respawn_later(spawn)
+
+
+## Brings a slain wolf back to its den after [constant RESPAWN_SECONDS], once the cultivator is
+## far enough away, so the valley never runs out of wolves to hunt.
+func _respawn_later(spawn: Vector3) -> void:
+	await get_tree().create_timer(RESPAWN_SECONDS).timeout
+	while _player.global_position.distance_to(spawn) < RESPAWN_CLEARANCE:
+		await get_tree().create_timer(2.0).timeout
+	_spawn_wolf(spawn)
+
+
+func _on_alpha_died(_qi_reward: float) -> void:
+	_alpha_quest.record()
+	_hud.show_message("The Demon Wolf Alpha falls. Return to Elder Wen.", 5.0)
+	_refresh_quest()
+
+
+func _on_herb_gathered(herb: SpiritHerb) -> void:
+	_herb_quest.record()
+	_player.cultivation.gain_qi(herb.qi_reward)
+	_hud.show_message("You gather a %s. +%d qi." % [herb.display_name, int(herb.qi_reward)])
 	_refresh_quest()
 	_refresh_hud()
 
@@ -347,8 +483,18 @@ func _on_realm_changed(realm_name: String) -> void:
 	_hud.show_message("Breakthrough! You now stand at %s." % realm_name, 4.0)
 
 
+## Elder Wen's hunt shows the wolves until they are done, then the alpha. Lin's herbs sit below.
 func _refresh_quest() -> void:
-	_hud.set_quest(_quest.objective_text(), _quest.step == WolfQuest.Step.COMPLETE)
+	var hunt := _quest
+	var hunt_title := "Wolves of the valley"
+	if _quest.step == CountQuest.Step.COMPLETE and _alpha_quest.step != CountQuest.Step.NOT_STARTED:
+		hunt = _alpha_quest
+		hunt_title = "The alpha"
+	_hud.set_quests([_entry(hunt_title, hunt), _entry("Moon lotus", _herb_quest)])
+
+
+static func _entry(title: String, quest: CountQuest) -> Array:
+	return [title, quest.objective_text(), quest.step == CountQuest.Step.COMPLETE]
 
 
 func _refresh_hud() -> void:

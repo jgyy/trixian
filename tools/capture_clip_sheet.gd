@@ -90,6 +90,7 @@ func _load_row() -> void:
 	root.add_child(_model)
 	var height := float(_rows[_row][3]) if _rows[_row].size() > 3 else DEFAULT_HEIGHT
 	var bounds := ModelUtils.fit_to_height(_model, height)
+	ModelUtils.fix_skinned_normal_maps(_model)
 	var middle := Vector3(0.0, bounds.get_center().y, 0.0)
 	var offset := Vector3(0.0, 0.1, CAMERA_DISTANCE)
 	if _view == "side":
@@ -118,4 +119,6 @@ func _capture_cell() -> void:
 		Rect2i((image.get_width() - side) / 2, (image.get_height() - side) / 2, side, side)
 	)
 	crop.resize(CELL, CELL, Image.INTERPOLATE_LANCZOS)
+	# The viewport is RGBA on some renderers, and blit_rect needs matching formats.
+	crop.convert(Image.FORMAT_RGB8)
 	_sheet.blit_rect(crop, Rect2i(0, 0, CELL, CELL), Vector2i(CELL * _column, CELL * _row))

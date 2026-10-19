@@ -50,7 +50,7 @@ var _main: Node3D
 
 func _initialize() -> void:
 	_test_cultivation_rules()
-	_test_wolf_quest()
+	_test_count_quest()
 	_test_model_fitting()
 	_test_clip_resolution()
 	_main = load(MAIN_SCENE).instantiate() as Node3D
@@ -124,28 +124,35 @@ func _test_cultivation_rules() -> void:
 	_check(cultivation.progress() <= 1.0, "progress is clamped to 1.0")
 
 
-func _test_wolf_quest() -> void:
-	print("WolfQuest")
-	var quest := WolfQuest.new(2, 150.0)
+func _test_count_quest() -> void:
+	print("CountQuest")
+	var quest := CountQuest.new(2, 150.0)
 	_check(quest.objective_text() == "Speak with Elder Wen", "quest starts unaccepted")
-	quest.record_kill()
-	quest.record_kill()
+	quest.record()
+	quest.record()
 	_check(quest.progress() == 2, "wolves slain before accepting still count")
 	_check(
 		is_equal_approx(quest.talk(), 150.0),
 		"accepting with the wolves already slain turns the quest in on the same talk"
 	)
-	_check(quest.step == WolfQuest.Step.COMPLETE, "quest is complete after the turn-in")
+	_check(quest.step == CountQuest.Step.COMPLETE, "quest is complete after the turn-in")
 	_check(is_equal_approx(quest.talk(), 0.0), "a completed quest pays no reward again")
 
-	var later := WolfQuest.new(2, 150.0)
+	var later := CountQuest.new(2, 150.0)
 	_check(is_equal_approx(later.talk(), 0.0), "accepting with no kills pays nothing")
-	later.record_kill()
+	later.record()
 	_check(later.objective_text() == "Slay demon wolves 1 / 2", "objective shows progress")
 	_check(not later.is_ready_to_turn_in(), "one kill is not enough to turn in")
-	later.record_kill()
+	later.record()
 	_check(later.objective_text() == "Return to Elder Wen", "objective asks for the turn-in")
 	_check(is_equal_approx(later.talk(), 150.0), "talking after the kills pays the reward")
+
+	var herbs := CountQuest.new(4, 120.0, "Disciple Lin", "Gather moon lotus")
+	_check(herbs.objective_text() == "Speak with Disciple Lin", "the giver is named")
+	herbs.talk()
+	herbs.record()
+	_check(herbs.objective_text() == "Gather moon lotus 1 / 4", "the task is named with its count")
+	_check(herbs.objective_text() != "", "an objective is always shown")
 
 
 func _test_model_fitting() -> void:
@@ -193,6 +200,31 @@ func _test_clip_resolution() -> void:
 	_check(not animator.play_action(&"hurt"), "a missing action returns false for fallbacks")
 	_check(animator.play_action(&"slash"), "a present action plays")
 	_check(animator.is_action_playing(), "the action is marked as playing")
+	holder.free()
+	_test_action_restarts()
+
+
+## A strike inside the previous strike's clip must swing again from the top, because the cut
+## lands strike_delay after the key press whatever the clip is doing.
+func _test_action_restarts() -> void:
+	var holder := Node3D.new()
+	var player := AnimationPlayer.new()
+	var library := AnimationLibrary.new()
+	var clip := Animation.new()
+	clip.length = 0.6
+	library.add_animation("slash", clip)
+	player.add_animation_library("", library)
+	holder.add_child(player)
+	root.add_child(holder)
+	var animator := CharacterAnimator.new(holder)
+	animator.play_action(&"slash")
+	player.advance(0.4)
+	animator.play_action(&"slash")
+	player.advance(0.0)
+	_check(
+		player.current_animation_position < 0.05,
+		"a second strike restarts the slash clip instead of carrying on from 0.4 s"
+	)
 	holder.free()
 
 
@@ -258,7 +290,8 @@ func _check_textures(label: String, mesh_instance: MeshInstance3D, arrays: Array
 		)
 	)
 	_check(material.normal_texture != null, "%s has a normal map" % label)
-	var ratio := _head_density_ratio(mesh_instance.skin, arrays)
+	var head := _head_vertices(mesh_instance.skin, arrays)
+	var ratio := _head_density_ratio(head, arrays)
 	_check(
 		ratio >= MIN_HEAD_DENSITY_RATIO,
 		(
@@ -266,16 +299,28 @@ func _check_textures(label: String, mesh_instance: MeshInstance3D, arrays: Array
 			% [label, ratio, MIN_HEAD_DENSITY_RATIO]
 		)
 	)
+	var fixed := ModelUtils.fix_skinned_normal_maps(mesh_instance.get_parent(), "gl_compatibility")
+	var override := mesh_instance.get_surface_override_material(0) as BaseMaterial3D
+	_check(
+		fixed == 1 and override != null and not override.normal_enabled,
+		(
+			"%s drops its normal map on the Compatibility renderer, which loses skinned tangents"
+			% label
+		)
+	)
+	_check(material.normal_enabled, "%s keeps its normal map in the shared material" % label)
+	mesh_instance.set_surface_override_material(0, null)
+	_check(
+		ModelUtils.fix_skinned_normal_maps(mesh_instance.get_parent(), "forward_plus") == 0,
+		"%s keeps its normal map on Forward+" % label
+	)
 
 
-## Texels per unit of surface on the triangles that follow a head joint, divided by the same
-## figure for every other triangle.
-func _head_density_ratio(skin: Skin, arrays: Array) -> float:
+## Whether each vertex follows a head joint more than any other joint.
+func _head_vertices(skin: Skin, arrays: Array) -> Array[bool]:
 	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 	var bones: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
 	var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 	var is_head_bind: Array[bool] = []
 	for bind in skin.get_bind_count():
 		is_head_bind.append(skin.get_bind_name(bind).to_lower().contains("head"))
@@ -286,6 +331,15 @@ func _head_density_ratio(skin: Skin, arrays: Array) -> float:
 			if weights[vertex * 4 + slot] > weights[vertex * 4 + strongest]:
 				strongest = slot
 		is_head_vertex.append(is_head_bind[bones[vertex * 4 + strongest]])
+	return is_head_vertex
+
+
+## Texels per unit of surface on the triangles that follow a head joint, divided by the same
+## figure for every other triangle.
+func _head_density_ratio(is_head_vertex: Array[bool], arrays: Array) -> float:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 	var surface := [0.0, 0.0]
 	var texture_area := [0.0, 0.0]
 	for corner in range(0, indices.size(), 3):
@@ -391,10 +445,72 @@ func _test_scene_boots() -> void:
 		_check(player.animator.has_clip(&"slash"), "player model has a slash clip")
 	_check(get_nodes_in_group("enemies").size() == 3, "three spirit beasts are spawned")
 	_check(get_nodes_in_group("npcs").size() == 2, "two NPCs are spawned")
+	_check(get_nodes_in_group("herbs").size() == 6, "six moon lotuses are spawned")
 	for beast in get_nodes_in_group("enemies"):
 		_check((beast as SpiritBeast).animator.has_clip(&"run"), "spirit beast has a run clip")
 		break
 	_test_hall_walk_in()
+	if player != null:
+		_test_quest_line(player)
+
+
+## Plays both quest lines through the real scene: Lin's herbs, Elder Wen's wolves, then the alpha.
+func _test_quest_line(player: Cultivator) -> void:
+	print("Quests")
+	var hud: Hud = null
+	for child in _main.get_children():
+		if child is Hud:
+			hud = child
+	var elder: Npc = null
+	var lin: Npc = null
+	for npc in get_nodes_in_group("npcs"):
+		if (npc as Npc).display_name == "Elder Wen":
+			elder = npc
+		else:
+			lin = npc
+	_check(
+		hud.quest_lines() == PackedStringArray(["Speak with Elder Wen", "Speak with Disciple Lin"]),
+		"the tracker lists both quests before they are accepted"
+	)
+
+	var qi_before := player.cultivation.qi
+	lin.interact(player)
+	var herbs := get_nodes_in_group("herbs")
+	for index in range(4):
+		(herbs[index] as SpiritHerb).interact(player)
+	_check(get_nodes_in_group("herbs").size() == 2, "a gathered lotus leaves the valley")
+	_check(hud.quest_lines()[1] == "Return to Disciple Lin", "four lotuses fill Lin's quest")
+	lin.interact(player)
+	_check(
+		is_equal_approx(player.cultivation.qi - qi_before, 4 * 10.0 + 120.0),
+		"each lotus gives 10 qi and Lin pays 120 for four"
+	)
+	_check(hud.quest_lines()[1] == "Quest complete", "Lin's quest completes")
+
+	var wolves := get_nodes_in_group("enemies")
+	for index in range(2):
+		(wolves[index] as SpiritBeast).take_damage(1000.0)
+	elder.interact(player)
+	_check(hud.quest_lines()[0] == "Quest complete", "two wolves complete the elder's first quest")
+	_check(get_nodes_in_group("alpha").is_empty(), "the alpha waits until the elder asks for it")
+	elder.interact(player)
+	var alphas := get_nodes_in_group("alpha")
+	_check(alphas.size() == 1, "talking again sends the cultivator after the alpha")
+	_check(
+		hud.quest_lines()[0] == "Slay the Demon Wolf Alpha 0 / 1",
+		"the tracker moves on to the alpha"
+	)
+	var alpha := alphas[0] as SpiritBeast
+	_check(alpha.max_hp > 3.0 * 60.0, "the alpha is far tougher than a wolf")
+	alpha.take_damage(alpha.max_hp - 1.0)
+	_check(not alpha.is_dead(), "the alpha survives a blow that would kill three wolves")
+	alpha.take_damage(1.0)
+	qi_before = player.cultivation.qi
+	elder.interact(player)
+	_check(
+		is_equal_approx(player.cultivation.qi - qi_before, 300.0), "the elder pays 300 qi for it"
+	)
+	_check(hud.quest_lines()[0] == "Quest complete", "the alpha quest completes")
 
 
 func _test_hall_walk_in() -> void:
