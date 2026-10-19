@@ -53,6 +53,7 @@ func _ready() -> void:
 	_visual.add_child(model)
 	ModelUtils.fit_to_height(model, height)
 	ModelUtils.apply_anime_style(model)
+	SunShadeProbe.attach(model, self, height * 0.6)
 	animator = CharacterAnimator.new(model)
 	if aura.a > 0.0:
 		_apply_aura(model)

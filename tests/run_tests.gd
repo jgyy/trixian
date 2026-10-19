@@ -30,6 +30,9 @@ const MIN_ALBEDO_SIZE := 4096
 ## The head gets its own share of the atlas. Texels per unit of surface on the head must be at
 ## least this many times those on the body, or faces go soft again.
 const MIN_HEAD_DENSITY_RATIO := 4.0
+## Most edges whose end normals may turn past MAX_NORMAL_TURN degrees.
+const MAX_NORMAL_TURN := 32.0
+const MAX_SHARP_EDGE_SHARE := 0.25
 
 ## Action, then the world direction the cultivator should end up facing while it is held.
 const WALK_DIRECTIONS := [
@@ -258,6 +261,7 @@ func _check_rig(label: String, scene: PackedScene, clips: Array[String]) -> void
 
 	_check(_faces_forward(skeleton), "%s faces +Z, the way the game turns it" % label)
 	var arrays := mesh_instance.mesh.surface_get_arrays(0)
+	_check_normals(label, arrays)
 	_check_textures(label, mesh_instance, arrays)
 	_check(
 		_dummy_bone_weight(mesh_instance.skin, arrays) == 0,
@@ -320,6 +324,27 @@ func _check_textures(label: String, mesh_instance: MeshInstance3D, arrays: Array
 		"%s leaves the shared material untouched" % label
 	)
 	mesh_instance.set_surface_override_material(0, null)
+
+
+## The normals are smooth enough for the two-tone cel shade to draw clean shapes
+## (tools/anime_normals.py). Tripo's own turned more than MAX_NORMAL_TURN on 43% of edges.
+func _check_normals(label: String, arrays: Array) -> void:
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var sharp := 0
+	var limit := cos(deg_to_rad(MAX_NORMAL_TURN))
+	for corner in indices.size():
+		var other := indices[corner - corner % 3 + (corner + 1) % 3]
+		if normals[indices[corner]].dot(normals[other]) < limit:
+			sharp += 1
+	var share := float(sharp) / indices.size()
+	_check(
+		share <= MAX_SHARP_EDGE_SHARE,
+		(
+			"%s normals turn past %.0f degrees on %.0f%% of edges, at most %.0f%%"
+			% [label, MAX_NORMAL_TURN, share * 100.0, MAX_SHARP_EDGE_SHARE * 100.0]
+		)
+	)
 
 
 ## Whether each vertex follows a head joint more than any other joint.
@@ -456,6 +481,7 @@ func _test_scene_boots() -> void:
 		_check((beast as SpiritBeast).animator.has_clip(&"run"), "spirit beast has a run clip")
 		break
 	_check_cel_shaded()
+	_check_sun_shade(player)
 	_test_hall_walk_in()
 	if player != null:
 		_test_quest_line(player)
@@ -478,6 +504,22 @@ func _check_cel_shaded() -> void:
 		glossy == 0,
 		"all %d characters are cel shaded (%d glossy surfaces)" % [characters.size(), glossy]
 	)
+
+
+## Characters skip the shadow map; a probe darkens them as a whole under the scenery instead.
+func _check_sun_shade(player: Cultivator) -> void:
+	var probes := player.find_children("*", "SunShadeProbe", true, false)
+	_check(probes.size() == 1, "the cultivator carries a sun shade probe")
+	if probes.size() == 1:
+		_check(
+			not (probes[0] as SunShadeProbe).is_sun_blocked(),
+			"the cultivator stands in the sun at the gate"
+		)
+	var inside := SunShadeProbe.new()
+	inside.position = HALL_ORIGIN + Vector3(0.0, 3.0, 0.0)
+	_main.add_child(inside)
+	_check(inside.is_sun_blocked(), "inside the sect hall the roof shades a character")
+	inside.free()
 
 
 ## Plays both quest lines through the real scene: Lin's herbs, Elder Wen's wolves, then the alpha.

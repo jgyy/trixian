@@ -23,6 +23,7 @@ func _ready() -> void:
 	add_child(model)
 	ModelUtils.fit_to_height(model, height)
 	ModelUtils.apply_anime_style(model)
+	SunShadeProbe.attach(model, self, height * 0.6)
 	animator = CharacterAnimator.new(model)
 	animator.play(&"idle")
 

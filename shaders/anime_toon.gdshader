@@ -23,6 +23,11 @@ uniform float saturation : hint_range(0.0, 2.0) = 1.18;
 uniform vec4 rim_color : source_color = vec4(1.0, 0.97, 0.92, 1.0);
 uniform float rim_strength : hint_range(0.0, 1.0) = 0.22;
 uniform float rim_width : hint_range(0.0, 1.0) = 0.28;
+// Characters do not take the sun's shadow map: thin hair and sleeves cast ragged blotches across
+// faces in two-tone shading. Instead SunShadeProbe says how far the whole character stands in the
+// shade of the scenery, 0 in the sun and 1 under a roof.
+uniform bool self_shadows = true;
+uniform float sun_shade : hint_range(0.0, 1.0) = 0.0;
 
 void fragment() {
 	vec2 texel = sharpen_radius / vec2(textureSize(albedo_texture, 0));
@@ -50,7 +55,7 @@ void light() {
 	);
 	if (LIGHT_IS_DIRECTIONAL) {
 		// Sun shadows are snapped to the same two tones, so a cast shadow is a clean shade shape.
-		lit *= step(0.5, ATTENUATION);
+		lit *= self_shadows ? step(0.5, ATTENUATION) : 1.0 - sun_shade;
 		DIFFUSE_LIGHT += LIGHT_COLOR / PI * mix(shade_color.rgb, vec3(1.0), lit);
 	} else {
 		// Lanterns and glows keep their smooth falloff, so they do not cut hard discs into walls.

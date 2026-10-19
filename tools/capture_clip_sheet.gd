@@ -91,6 +91,7 @@ func _load_row() -> void:
 	var height := float(_rows[_row][3]) if _rows[_row].size() > 3 else DEFAULT_HEIGHT
 	var bounds := ModelUtils.fit_to_height(_model, height)
 	ModelUtils.apply_anime_style(_model)
+	SunShadeProbe.attach(_model, null, height * 0.6)
 	var middle := Vector3(0.0, bounds.get_center().y, 0.0)
 	var offset := Vector3(0.0, 0.1, CAMERA_DISTANCE)
 	if _view == "side":
