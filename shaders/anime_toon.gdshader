@@ -48,9 +48,12 @@ void light() {
 	float lit = smoothstep(
 		shade_threshold - shade_softness, shade_threshold + shade_softness, dot(NORMAL, LIGHT)
 	);
-	// Shadows are snapped to the same two tones, so a cast shadow is a clean shade shape.
-	lit *= step(0.5, ATTENUATION);
-	vec3 tone = mix(shade_color.rgb, vec3(1.0), lit);
-	float falloff = LIGHT_IS_DIRECTIONAL ? 1.0 : ATTENUATION;
-	DIFFUSE_LIGHT += LIGHT_COLOR / PI * tone * falloff;
+	if (LIGHT_IS_DIRECTIONAL) {
+		// Sun shadows are snapped to the same two tones, so a cast shadow is a clean shade shape.
+		lit *= step(0.5, ATTENUATION);
+		DIFFUSE_LIGHT += LIGHT_COLOR / PI * mix(shade_color.rgb, vec3(1.0), lit);
+	} else {
+		// Lanterns and glows keep their smooth falloff, so they do not cut hard discs into walls.
+		DIFFUSE_LIGHT += LIGHT_COLOR / PI * lit * ATTENUATION;
+	}
 }
