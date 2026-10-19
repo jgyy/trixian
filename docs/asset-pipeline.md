@@ -39,7 +39,7 @@ sequenceDiagram
 
 ## After Tripo: the order of the repair steps
 
-Each Tripo GLB goes through up to three offline steps before it is committed. They all read and
+Each Tripo GLB goes through up to four offline steps before it is committed. They all read and
 write plain GLBs and need no account.
 
 ```mermaid
@@ -48,13 +48,17 @@ flowchart LR
     full["Full-size animated GLB<br/>1.4M triangles, 4096 px"] -. characters .-> rebake
     rebake --> tune["tune_character_materials.py<br/>roughness 0.55, metallic 0"]
     tune --> fix["fix_character_rig.py<br/>facing, bind pose, weights, clips"]
-    fix --> repo["assets/models/NAME.glb"]
+    fix --> normals["anime_normals.py<br/>smooth normals, head ellipsoid"]
+    normals --> repo["assets/models/NAME.glb"]
     rebake -. props .-> repo
 ```
 
 Props only need the rebake, and it moves their 2048 px maps into the new layout. Characters need all
-three, in this order, and are baked from the full-size model. The rig repair refuses to run twice
-on the same file. `tools/repair_character.sh NAME` runs the three steps for one character.
+four, in this order, and are baked from the full-size model. The rig repair refuses to run twice
+on the same file. The normal rewrite only touches the NORMAL bytes; a second run smooths a little
+further, so run it once. See
+[Clean cel shadows](architecture.md#clean-cel-shadows-normals-and-self-shadowing).
+`tools/repair_character.sh NAME` runs the four steps for one character.
 
 ## Regenerating
 
@@ -265,18 +269,21 @@ to start with `No module named 'math'`: its embedded Python finds its standard l
 - The guard trades sharpness for safety on 0.3 to 3.8% of triangles, which are soft instead of
   wrong. Where the full model has a loose strand across a face, that triangle keeps the old,
   blurrier colour.
-- A dark vertical line runs down the face in the valley's light. It stays with the normal map off,
-  with shadows off and with the sun hidden, it moves across the face when the cultivator turns, and
-  a plain sphere in the same spot shows it too. It comes from the sky's ambient light and not from
-  the model. It was seen with Mesa's software renderers (llvmpipe, lavapipe) and not checked on a
-  GPU.
+- A dark vertical line used to run down the face at the sect gate. It was the two gate lanterns,
+  not the sky or the model: each lights one cheek and neither reaches the middle of the face.
+  Hiding the omni lights alone removed it. The cel shader now gives lanterns soft wrapped light,
+  so the gap is gone; see [Clean cel shadows](architecture.md#clean-cel-shadows-normals-and-self-shadowing).
 - The Compatibility renderer drops the tangents of skinned meshes, which made the faces patchy
-  there. The game turns the characters' normal maps off on that renderer; see
+  there. The game's cel shader does not read normal maps at all; see
   [Normal maps on the Compatibility renderer](architecture.md#normal-maps-on-the-compatibility-renderer).
 - Props still use the 2048 px export. The sect hall, spirit tree and jade rock are seen from a
   distance, and the same bake would work if they were ever seen close up.
 
 ## Material tuning
+
+In the game the models are drawn with an anime cel shader that keeps only the albedo (see
+[Anime cel shading](architecture.md#anime-cel-shading)), so the factors below matter only where the
+GLB is viewed as it is, in Blender or a glTF viewer.
 
 Tripo's metal/roughness map is almost fully rough. Its green channel (roughness) averages 0.91, and
 its blue channel (metallic) is noisy, averaging 0.13 with peaks in cloth and hair. Lit by the sun,

@@ -52,6 +52,9 @@ const DISCIPLE_LINES: PackedStringArray = [
 	"Disciple Lin: Elder Wen waits by the hall. Speak with him once you are ready.",
 ]
 
+## Scenery is seen from further away than the characters, so its ink outline is wider.
+const PROP_OUTLINE_WIDTH := 0.02
+
 const PLAYER_MODEL := preload("res://assets/models/female_cultivator.glb")
 const DISCIPLE_MODEL := preload("res://assets/models/hero.glb")
 const ELDER_MODEL := preload("res://assets/models/elder.glb")
@@ -170,6 +173,7 @@ func _add_prop(scene: PackedScene, at: Vector3, height: float, yaw: float, solid
 	var model := scene.instantiate() as Node3D
 	root.add_child(model)
 	var bounds := ModelUtils.fit_to_height(model, height)
+	ModelUtils.apply_anime_style(model, PROP_OUTLINE_WIDTH)
 	if solid:
 		var body := StaticBody3D.new()
 		var shape := CollisionShape3D.new()

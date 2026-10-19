@@ -22,7 +22,8 @@ func _ready() -> void:
 	var model := model_scene.instantiate() as Node3D
 	add_child(model)
 	ModelUtils.fit_to_height(model, height)
-	ModelUtils.fix_skinned_normal_maps(model)
+	ModelUtils.apply_anime_style(model)
+	SunShadeProbe.attach(model, self, height * 0.6)
 	animator = CharacterAnimator.new(model)
 	animator.play(&"idle")
 

@@ -87,7 +87,8 @@ func _load_model() -> void:
 		_model = document.generate_scene(state) as Node3D
 	root.add_child(_model)
 	ModelUtils.fit_to_height(_model, HEIGHT)
-	ModelUtils.fix_skinned_normal_maps(_model)
+	ModelUtils.apply_anime_style(_model)
+	SunShadeProbe.attach(_model, null, HEIGHT * 0.6)
 	var player := _model.find_children("*", "AnimationPlayer", true, false)[0] as AnimationPlayer
 	for clip in player.get_animation_list():
 		if String(clip).ends_with("idle"):

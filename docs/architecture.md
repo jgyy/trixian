@@ -34,8 +34,9 @@ flowchart LR
         cultivation["Cultivation<br/>qi and realms"]
         quest["CountQuest x3<br/>accept, count, turn in"]
         animator["CharacterAnimator<br/>clips and one-shot actions"]
-        model_utils["ModelUtils<br/>fit, bounds, yaw,<br/>Compatibility normal-map fix"]
+        model_utils["ModelUtils<br/>fit, bounds, yaw,<br/>anime cel shading"]
         input_setup["InputSetup<br/>key bindings"]
+        shade_probe["SunShadeProbe<br/>character in or out of shade"]
     end
     subgraph Gameplay
         player["Cultivator"]
@@ -54,6 +55,9 @@ flowchart LR
     beast -- uses --> model_utils
     npc -- uses --> animator
     npc -- uses --> model_utils
+    player -- carries --> shade_probe
+    beast -- carries --> shade_probe
+    npc -- carries --> shade_probe
     main -- owns --> quest
     main -- registers --> input_setup
     main -- builds --> decor
@@ -133,7 +137,8 @@ classDiagram
     class ModelUtils {
         <<static>>
         +fit_to_height(root, height) AABB
-        +fix_skinned_normal_maps(root, method) int
+        +apply_anime_style(root, outline_width) int
+        +anime_material(source, outline_width) ShaderMaterial
         +yaw_towards(direction) float
     }
     class ValleyDecor {
@@ -297,6 +302,85 @@ flowchart LR
     beast["SpiritBeast"] -- "yaw_towards(to_player)" --> yaw
 ```
 
+### Anime cel shading
+
+Tripo bakes its textures for physically based shading. Lit that way, with a normal map full of
+baked wrinkles and a specular highlight on every surface, skin and cloth looked glossy and smudged,
+like an oil painting. `ModelUtils.apply_anime_style` replaces each model's material with a cel
+shader (`shaders/anime_toon.gdshader`) when the model is placed, and gives it an ink outline as a
+second pass (`shaders/anime_outline.gdshader`). Characters, wolves and the Tripo scenery all get
+it; the scenery's outline is wider because it is seen from further away.
+
+```mermaid
+flowchart TD
+    glb["Tripo GLB material<br/>4096 px albedo, normal map,<br/>metal/roughness map"] --> apply["ModelUtils.apply_anime_style<br/>surface override per mesh"]
+    apply --> toon["anime_toon.gdshader"]
+    apply --> outline["anime_outline.gdshader<br/>next pass"]
+    toon --> sharpen["Albedo: unsharp mask<br/>and +18% saturation"]
+    toon --> bands["Sun: two hard-edged tones<br/>lit or violet shade"]
+    toon --> lamps["Lanterns and glows:<br/>soft wrapped fill"]
+    toon --> nospec["No specular, no reflections,<br/>no normal map"]
+    toon --> rim["Thin rim of light<br/>on the silhouette"]
+    outline --> hull["Inverted hull pushed out 4 mm<br/>and back 3 cm from the camera"]
+    hull --> ink["Coloured with the albedo<br/>darkened to 30%"]
+```
+
+- **Two tones.** `light()` turns the sun's N.L into lit or shade with an edge 0.05 wide, so
+  shading is a clean shape instead of a gradient. Scenery snaps its cast shadows to the same shade;
+  characters take one shade for the whole body (see below). The shade is a cool violet multiplied
+  into the colour, as anime colourists paint it. Lanterns and glows add soft wrapped light.
+- **Sharper colour.** Tripo's baked albedo is soft. The shader subtracts a four-tap blur 1.5 texels
+  wide from it (an unsharp mask) and raises the saturation, so lines and colour boundaries in the
+  texture come out crisp.
+- **No gloss.** Specular, reflections and roughness are off, and the normal map is not used: cel
+  shading wants the smooth vertex normals.
+- **Ink lines.** The outline is an inverted hull, pushed out along the view-space normal by a width
+  in metres, so it thins with distance. It is also pushed 3 cm away from the camera, so it draws
+  around the silhouette but not through the layered collars, sleeves and hair in front of it.
+
+### Clean cel shadows: normals and self-shadowing
+
+The first cut of the cel shader cut jagged wedges and blotches across faces. Rendering the face
+with the shading split into its parts showed two causes, and ruled out the UVs: a UV checker
+shows fragmented charts, but the shade shapes do not follow them, because lighting never reads UVs.
+
+- **Mesh normals.** Tripo's decimated mesh has noisy, faceted normals: on the cultivator 43% of
+  edges turned more than 32 degrees from one end to the other. The two-tone edge sits where N.L
+  crosses a threshold, so it zigzagged along triangle edges. `tools/anime_normals.py` welds the
+  vertices that UV seams split, rebuilds area-weighted smooth normals, relaxes them over their
+  neighbours, and bends the head's normals 60% of the way towards an ellipsoid fitted around it,
+  the usual anime trick, so a face shades as one shape. Only the NORMAL bytes of the GLBs change.
+  The share of sharp edges drops to 12 to 22%, and the tests hold it under 25%.
+- **Self-shadowing.** Thin hair strands and sleeves cast ragged blotches through the shadow map,
+  which two-tone shading turned into hard black shapes. Characters no longer take the shadow map
+  (`self_shadows` off). A `SunShadeProbe` on each character casts one ray from the chest towards
+  the sun every physics frame; if the hall, a tree or a rock is in the way, the whole character
+  fades into its shade tone over a quarter of a second. Other characters do not count. Scenery
+  keeps its shadow map, and characters still cast shadows onto it.
+- **Lanterns.** At the sect gate a dark stripe ran down the middle of the cultivator's face. Hiding
+  the 16 omni lights alone removed it: the two gate lanterns each light one cheek, and the hard
+  cel terminator left the front of the face, which neither reaches, unlit. Point lights now give
+  soft wrapped (half-Lambert) fill with their smooth falloff; only the sun is drawn in two tones.
+
+```mermaid
+flowchart TD
+    edge["Jagged cel shade on faces"] --> q1{"Follows triangle edges<br/>with cast shadows off?"}
+    q1 -- yes --> normals["Faceted mesh normals<br/>43% of edges turn > 32 degrees"]
+    normals --> tool["tools/anime_normals.py<br/>weld, smooth, relax,<br/>head bent to an ellipsoid"]
+    edge --> q2{"Blotches only with<br/>cast shadows on?"}
+    q2 -- yes --> self["Hair and sleeves<br/>shadow the face"]
+    self --> probe["self_shadows off<br/>SunShadeProbe: one ray to the sun<br/>whole character in or out of shade"]
+    edge --> q3{"Follows the UV checker?"}
+    q3 -- no --> uv["UVs are not the cause"]
+    edge --> q4{"Stripe gone with<br/>omni lights hidden?"}
+    q4 -- yes --> lamps["Two lanterns, one per cheek<br/>point lights: soft wrapped fill"]
+```
+
+![Faces before and after the normal and shadow fix](anime-style/shadow_fix.png)
+
+Columns: the cultivator and Disciple Lin, each lit and then with normals drawn as colour. Top:
+Tripo's normals with the shadow map. Bottom: the rewritten normals without self-shadowing.
+
 ### Normal maps on the Compatibility renderer
 
 The game runs on Forward+, and Godot falls back to the Compatibility renderer (OpenGL 3) when
@@ -304,16 +388,18 @@ Vulkan is missing. That renderer skins meshes in a transform-feedback pass that 
 `TANGENT` attribute (`drivers/gles3/storage/mesh_storage.cpp` in 4.7.2), so every vertex of a
 skinned mesh comes out with the same tangent. A tangent-space normal map is then read in the wrong
 frame, and on the characters, whose UV charts all have their own tangent frames, faces broke into
-pale and dark patches. `ModelUtils.fix_skinned_normal_maps` turns the normal maps of skinned meshes
-off on that renderer only, which leaves the smooth vertex normals and the baked colour.
+pale and dark patches. The game used to turn the normal maps of skinned meshes off on that renderer
+only. The cel shader above does not read normal maps on any renderer, so the problem is gone
+everywhere and the workaround was removed.
 
 ```mermaid
 flowchart TD
-    model["Character GLB<br/>TANGENT per vertex, 2048 px normal map"] --> method{"Rendering method"}
-    method -- forward_plus / mobile --> fp["Skinned on the GPU with tangents<br/>normal map lit as baked"]
+    model["Character GLB<br/>TANGENT per vertex, normal map"] --> method{"Rendering method"}
+    method -- forward_plus / mobile --> fp["Skinned on the GPU with tangents"]
     method -- gl_compatibility --> tf["Transform feedback skinning<br/>TANGENT never bound, one constant tangent"]
-    tf --> fix["fix_skinned_normal_maps<br/>override material, normal map off"]
-    fix --> clean["Smooth vertex normals<br/>and the 4096 px base colour"]
+    fp --> cel["anime_toon.gdshader<br/>smooth vertex normals only"]
+    tf --> cel
+    cel --> clean["Same clean faces on both renderers"]
 ```
 
 ![Tangents of the skinned cultivator in both renderers](normal-fix/skinned_tangents.png)
@@ -323,7 +409,7 @@ Right: the same on Compatibility, one colour everywhere.
 
 ![The cultivator in the valley on the Compatibility renderer, before and after](normal-fix/in_game_compatibility.png)
 
-The cultivator in the valley on the Compatibility renderer, before and after.
+The cultivator in the valley on the Compatibility renderer, before and after the original fix.
 
 GLB textures are embedded in the GLB. Godot's import setting `gltf/embedded_image_handling=2`
 compresses them into the imported scene, so no texture files are extracted next to the models.

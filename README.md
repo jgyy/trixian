@@ -4,7 +4,9 @@ A 3D xianxia cultivation prototype built in Godot 4.7. The valley, buildings, sp
 characters are generated from text prompts with the Tripo CLI. The characters are rigged, and their
 facing, skin weights and animation clips are repaired offline so they walk the right way, keep their
 textures while they move and play clips that fit a game. Their textures are baked from Tripo's
-full-size 4096 px model, with extra room for the head, so faces stay sharp up close. You play as a female cultivator.
+full-size 4096 px model, with extra room for the head, so faces stay sharp up close. Every model is
+drawn with an anime cel shader: flat, hard-edged light and shade, crisp colour and ink outlines.
+You play as a female cultivator.
 
 ![Valley overview](docs/screenshots/valley_overview.png)
 
@@ -34,6 +36,25 @@ full-size 4096 px model, with extra room for the head, so faces stay sharp up cl
 | --- | --- |
 | ![Moon lotus](docs/screenshots/moon_lotus.png) | ![Wolf alpha](docs/screenshots/wolf_alpha.png) |
 
+### Anime shading, before and after
+
+![Faces before and after the anime cel shader](docs/anime-style/faces_before_after.png)
+
+![The valley before and after the anime cel shader](docs/anime-style/in_game_before_after.png)
+
+Top of each: Tripo's PBR materials, where specular gloss, a baked normal map and soft gradients made
+skin and cloth look smudged, like an oil painting. Bottom: the cel shader, with two hard-edged tones
+of light, no gloss, a sharpened and more saturated albedo, a rim light and ink outlines.
+[Anime cel shading](docs/architecture.md#anime-cel-shading) explains how it works.
+
+![Faces before and after the normal and shadow fix](docs/anime-style/shadow_fix.png)
+
+The first cut of the shader drew jagged shade wedges and hair-shadow blotches across faces. The
+mesh normals were the cause, not the UVs: Tripo's decimated mesh has faceted normals, which
+`tools/anime_normals.py` smooths, bending the head towards an ellipsoid. Characters also no longer
+shadow themselves; one ray to the sun decides whether the whole character stands in shade. See
+[Clean cel shadows](docs/architecture.md#clean-cel-shadows-normals-and-self-shadowing).
+
 ### Faces, before and after the texture bake
 
 ![The cultivator's face in the valley, before and after](docs/texture-fix/in_game_face.png)
@@ -50,8 +71,8 @@ camera closer than the game's zoom goes.
 
 When Vulkan is missing, Godot falls back to its Compatibility renderer, whose skinning pass drops
 the tangents of every skinned mesh. The characters' normal maps were then read in the wrong frame
-and their faces broke into pale and dark patches (left). The game now turns those normal maps off
-on that renderer only (right); Forward+ keeps them. See
+and their faces broke into pale and dark patches (left). The game turned those normal maps off on
+that renderer (right); the anime cel shader now leaves normal maps out on every renderer. See
 [Model handling](docs/architecture.md#normal-maps-on-the-compatibility-renderer).
 
 ### Animation, before and after the rig repair
@@ -107,7 +128,7 @@ godot --path .                       # launch the game
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . --script res://tests/run_tests.gd   # 135 headless checks
+godot --headless --path . --script res://tests/run_tests.gd   # 147 headless checks
 pip install "gdtoolkit==4.5.0"
 gdlint scripts tests tools
 gdformat --check scripts tests tools
@@ -124,6 +145,7 @@ stretched texture islands Tripo's own unwrap produces. For the characters it als
 nine times the texture area and bakes every map from Tripo's full-size 4096 px model in Blender
 (`tools/bake_hires_maps.py`), so faces stay sharp when you zoom in. `tools/repair_character.sh NAME`
 runs the whole character chain.
+`tools/anime_normals.py` smooths the characters' normals for the cel shader.
 `tools/tune_character_materials.py` sets the characters' material factors so they read as cloth and
 skin rather than clay, and `tools/fix_character_rig.py` turns each character to face +Z, re-skins
 its pinned vertices, smooths the weights that tear and replaces Tripo's preset clips with short
@@ -136,6 +158,7 @@ and the texture bake.
 ```
 assets/models/       Tripo GLB models (rigged, 4096 px character textures) and their Godot import sidecars
 scenes/main.tscn     root scene; builds the valley from code
+shaders/             anime cel shader and ink outline for the Tripo models
 scripts/core/        cultivation rules, quest rules, animation driver, model fitting, input
 scripts/player/      the cultivator (player)
 scripts/enemies/     spirit beast enemy AI
@@ -150,7 +173,7 @@ docs/                architecture, asset pipeline, screenshots
 ## Documentation
 
 - [Architecture](docs/architecture.md): scene tree, systems, quest line, quest and animation state
-  diagrams, combat sequence and the Compatibility renderer fix.
+  diagrams, combat sequence, the anime cel shader and the Compatibility renderer fix.
 - [Asset pipeline](docs/asset-pipeline.md): Tripo workflow, rigging, asset table and previews.
 
 ## License

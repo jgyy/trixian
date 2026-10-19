@@ -9,7 +9,8 @@
 #   NAME/anim        the full-resolution animated model, about 1.4 million triangles and 4096 px
 #                    textures. Every map is baked from it, so the face keeps its detail.
 # and writes assets/models/NAME.glb after rebake_textures.py (UV layout with a dense head, then a
-# Blender bake from the full model), tune_character_materials.py and fix_character_rig.py.
+# Blender bake from the full model), tune_character_materials.py, fix_character_rig.py and
+# anime_normals.py (smooth normals for the cel shader, the head bent towards an ellipsoid).
 #
 # Needs Blender (set BLENDER if it is not on PATH) and `pip install xatlas numpy pillow`. No
 # Tripo account or credits are used.
@@ -39,5 +40,11 @@ python3 tools/rebake_textures.py "$game" "$scratch/rebaked.glb" "$source"
 echo "tune    $name"
 python3 tools/tune_character_materials.py "$scratch/rebaked.glb" "$scratch/tuned.glb"
 echo "rig     $name"
-python3 tools/fix_character_rig.py "$scratch/tuned.glb" "$out" --kind "$kind"
+python3 tools/fix_character_rig.py "$scratch/tuned.glb" "$scratch/rigged.glb" --kind "$kind"
+echo "normals $name"
+head_bone="Head"
+if [[ "$kind" == quadruped ]]; then
+	head_bone=""
+fi
+python3 tools/anime_normals.py "$scratch/rigged.glb" "$out" --head-bone "$head_bone"
 echo "saved $out"
