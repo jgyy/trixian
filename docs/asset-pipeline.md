@@ -55,7 +55,8 @@ flowchart LR
 
 Props only need the rebake, and it moves their 2048 px maps into the new layout. Characters need all
 four, in this order, and are baked from the full-size model. The rig repair refuses to run twice
-on the same file. The normal rewrite only touches the NORMAL bytes; a second run smooths a little further, so run it once; see
+on the same file. The normal rewrite only touches the NORMAL bytes; a second run smooths a little
+further, so run it once. See
 [Clean cel shadows](architecture.md#clean-cel-shadows-normals-and-self-shadowing).
 `tools/repair_character.sh NAME` runs the four steps for one character.
 
@@ -268,11 +269,10 @@ to start with `No module named 'math'`: its embedded Python finds its standard l
 - The guard trades sharpness for safety on 0.3 to 3.8% of triangles, which are soft instead of
   wrong. Where the full model has a loose strand across a face, that triangle keeps the old,
   blurrier colour.
-- A dark vertical line runs down the face in the valley's light. It stays with the normal map off,
-  with shadows off and with the sun hidden, it moves across the face when the cultivator turns, and
-  a plain sphere in the same spot shows it too. It comes from the sky's ambient light and not from
-  the model. It was seen with Mesa's software renderers (llvmpipe, lavapipe) and not checked on a
-  GPU.
+- A dark vertical line used to run down the face at the sect gate. It was the two gate lanterns,
+  not the sky or the model: each lights one cheek and neither reaches the middle of the face.
+  Hiding the omni lights alone removed it. The cel shader now gives lanterns soft wrapped light,
+  so the gap is gone; see [Clean cel shadows](architecture.md#clean-cel-shadows-normals-and-self-shadowing).
 - The Compatibility renderer drops the tangents of skinned meshes, which made the faces patchy
   there. The game's cel shader does not read normal maps at all; see
   [Normal maps on the Compatibility renderer](architecture.md#normal-maps-on-the-compatibility-renderer).

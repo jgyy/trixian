@@ -58,7 +58,10 @@ void light() {
 		lit *= self_shadows ? step(0.5, ATTENUATION) : 1.0 - sun_shade;
 		DIFFUSE_LIGHT += LIGHT_COLOR / PI * mix(shade_color.rgb, vec3(1.0), lit);
 	} else {
-		// Lanterns and glows keep their smooth falloff, so they do not cut hard discs into walls.
-		DIFFUSE_LIGHT += LIGHT_COLOR / PI * lit * ATTENUATION;
+		// Lanterns and glows are soft fill: wrapped (half-Lambert) light with their smooth falloff.
+		// A hard terminator here cut discs into walls, and between the two gate lanterns, which
+		// each light one cheek, it drew a dark stripe down the middle of the face.
+		float wrap = clamp(dot(NORMAL, LIGHT) * 0.5 + 0.5, 0.0, 1.0);
+		DIFFUSE_LIGHT += LIGHT_COLOR / PI * wrap * wrap * ATTENUATION;
 	}
 }

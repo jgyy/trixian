@@ -317,16 +317,18 @@ flowchart TD
     apply --> toon["anime_toon.gdshader"]
     apply --> outline["anime_outline.gdshader<br/>next pass"]
     toon --> sharpen["Albedo: unsharp mask<br/>and +18% saturation"]
-    toon --> bands["Sun: two hard-edged tones<br/>lit or violet shade, shadows snapped"]
+    toon --> bands["Sun: two hard-edged tones<br/>lit or violet shade"]
+    toon --> lamps["Lanterns and glows:<br/>soft wrapped fill"]
     toon --> nospec["No specular, no reflections,<br/>no normal map"]
     toon --> rim["Thin rim of light<br/>on the silhouette"]
     outline --> hull["Inverted hull pushed out 4 mm<br/>and back 3 cm from the camera"]
     hull --> ink["Coloured with the albedo<br/>darkened to 30%"]
 ```
 
-- **Two tones.** `light()` turns N.L into lit or shade with an edge 0.05 wide, and snaps cast
-  shadows to the same shade, so shading is a clean shape instead of a gradient. The shade is a
-  cool violet multiplied into the colour, as anime colourists paint it.
+- **Two tones.** `light()` turns the sun's N.L into lit or shade with an edge 0.05 wide, so
+  shading is a clean shape instead of a gradient. Scenery snaps its cast shadows to the same shade;
+  characters take one shade for the whole body (see below). The shade is a cool violet multiplied
+  into the colour, as anime colourists paint it. Lanterns and glows add soft wrapped light.
 - **Sharper colour.** Tripo's baked albedo is soft. The shader subtracts a four-tap blur 1.5 texels
   wide from it (an unsharp mask) and raises the saturation, so lines and colour boundaries in the
   texture come out crisp.
@@ -355,6 +357,10 @@ shows fragmented charts, but the shade shapes do not follow them, because lighti
   the sun every physics frame; if the hall, a tree or a rock is in the way, the whole character
   fades into its shade tone over a quarter of a second. Other characters do not count. Scenery
   keeps its shadow map, and characters still cast shadows onto it.
+- **Lanterns.** At the sect gate a dark stripe ran down the middle of the cultivator's face. Hiding
+  the 16 omni lights alone removed it: the two gate lanterns each light one cheek, and the hard
+  cel terminator left the front of the face, which neither reaches, unlit. Point lights now give
+  soft wrapped (half-Lambert) fill with their smooth falloff; only the sun is drawn in two tones.
 
 ```mermaid
 flowchart TD
@@ -366,6 +372,8 @@ flowchart TD
     self --> probe["self_shadows off<br/>SunShadeProbe: one ray to the sun<br/>whole character in or out of shade"]
     edge --> q3{"Follows the UV checker?"}
     q3 -- no --> uv["UVs are not the cause"]
+    edge --> q4{"Stripe gone with<br/>omni lights hidden?"}
+    q4 -- yes --> lamps["Two lanterns, one per cheek<br/>point lights: soft wrapped fill"]
 ```
 
 ![Faces before and after the normal and shadow fix](anime-style/shadow_fix.png)
