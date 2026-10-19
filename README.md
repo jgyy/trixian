@@ -30,6 +30,10 @@ full-size 4096 px model, with extra room for the head, so faces stay sharp up cl
 | --- |
 | ![Wolf charge](docs/screenshots/wolf_charge.png) |
 
+| Gathering a moon lotus for Disciple Lin | The Demon Wolf Alpha behind the hall |
+| --- | --- |
+| ![Moon lotus](docs/screenshots/moon_lotus.png) | ![Wolf alpha](docs/screenshots/wolf_alpha.png) |
+
 ### Faces, before and after the texture bake
 
 ![The cultivator's face in the valley, before and after](docs/texture-fix/in_game_face.png)
@@ -39,6 +43,16 @@ full model into a layout that gives the head nine times the area per unit of sur
 [asset pipeline](docs/asset-pipeline.md#sharp-faces-bake-from-the-full-model) explains why the old
 face was soft and how the bake works. The new shot is `player_face_closeup.png`, taken with a
 camera closer than the game's zoom goes.
+
+### Faces on the Compatibility renderer, before and after
+
+![Faces on the Compatibility renderer, before and after](docs/normal-fix/faces_compatibility.png)
+
+When Vulkan is missing, Godot falls back to its Compatibility renderer, whose skinning pass drops
+the tangents of every skinned mesh. The characters' normal maps were then read in the wrong frame
+and their faces broke into pale and dark patches (left). The game now turns those normal maps off
+on that renderer only (right); Forward+ keeps them. See
+[Model handling](docs/architecture.md#normal-maps-on-the-compatibility-renderer).
 
 ### Animation, before and after the rig repair
 
@@ -57,8 +71,12 @@ Top: Tripo's own `walk`, in profile and torn by its skin weights. Bottom: the re
   the blade does, a quarter of a second after the key press. Wolves charge, flinch when hit and
   bite.
 - **Quest.** Elder Wen sends you after two wolves and rewards you with qi when you return. Wolves
-  slain before you accept the quest count towards it.
-- **Meet the sect.** Disciple Lin at the gate shares advice when you talk to her.
+  slain before you accept the quest count towards it. Talk to him again and he sends you after
+  the **Demon Wolf Alpha**, a larger wolf wreathed in red qi that waits behind the hall.
+- **Gather herbs.** Disciple Lin at the gate asks for four moon lotuses. They glow by the pond, in
+  the bamboo grove, under the spirit trees and behind the hall; press `E` beside one to gather it.
+  Once you have brought them she shares her advice.
+- **Keep hunting.** A slain wolf returns to its den 30 seconds later, once you are out of sight.
 - **Enter the sect hall.** The hall is twice the height of the other buildings. Climb the stairs on
   its east side, walk along the entry gallery and drop into the cella. Its walls, pillars and
   stairs block you exactly where they are drawn.
@@ -74,7 +92,7 @@ Top: Tripo's own `walk`, in profile and torn by its skin weights. Bottom: the re
 | Attack | `J` or left mouse button |
 | Meditate (toggle) | `F` |
 | Break through | `B` |
-| Talk to an NPC | `E` |
+| Talk to an NPC, gather a lotus | `E` |
 
 ## Running the game
 
@@ -89,7 +107,7 @@ godot --path .                       # launch the game
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . --script res://tests/run_tests.gd   # 93 headless checks
+godot --headless --path . --script res://tests/run_tests.gd   # 135 headless checks
 pip install "gdtoolkit==4.5.0"
 gdlint scripts tests tools
 gdformat --check scripts tests tools
@@ -122,7 +140,7 @@ scripts/core/        cultivation rules, quest rules, animation driver, model fit
 scripts/player/      the cultivator (player)
 scripts/enemies/     spirit beast enemy AI
 scripts/npc/         NPC interaction base
-scripts/world/       procedural valley decoration
+scripts/world/       procedural valley decoration, moon lotuses
 scripts/ui/          HUD
 tests/               headless test runner
 tools/               asset generation, UV rebake and screenshot capture scripts
@@ -131,8 +149,8 @@ docs/                architecture, asset pipeline, screenshots
 
 ## Documentation
 
-- [Architecture](docs/architecture.md): scene tree, systems, quest and animation state diagrams,
-  and combat sequence.
+- [Architecture](docs/architecture.md): scene tree, systems, quest line, quest and animation state
+  diagrams, combat sequence and the Compatibility renderer fix.
 - [Asset pipeline](docs/asset-pipeline.md): Tripo workflow, rigging, asset table and previews.
 
 ## License

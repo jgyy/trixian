@@ -36,6 +36,8 @@ var _spawn_position: Vector3
 var _heading := PI
 var _cooldown := 0.0
 var _prompt := ""
+## Set by the click that recaptures the mouse, so that click does not also swing the sword.
+var _swallow_attack := false
 var _visual: Node3D
 var _yaw_pivot: Node3D
 var _spring_arm: SpringArm3D
@@ -57,6 +59,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.pressed and _is_wheel(event):
 		_zoom(event as InputEventMouseButton)
 	elif event is InputEventMouseButton and event.pressed:
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			_swallow_attack = true
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
@@ -87,8 +91,9 @@ func _physics_process(delta: float) -> void:
 		_try_breakthrough()
 	if Input.is_action_just_pressed("interact"):
 		_interact()
-	if Input.is_action_just_pressed("attack"):
+	if Input.is_action_just_pressed("attack") and not _swallow_attack:
 		attack()
+	_swallow_attack = false
 
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := _yaw_pivot.global_transform.basis * Vector3(input.x, 0.0, input.y)
@@ -190,28 +195,30 @@ func _try_breakthrough() -> void:
 
 
 func _interact() -> void:
-	var npc := _nearest_npc()
-	if npc != null:
-		npc.interact(self)
+	var target := _nearest_interactable()
+	if target != null:
+		target.interact(self)
 
 
-func _nearest_npc() -> Npc:
-	var best: Npc = null
+## The nearest NPC or spirit herb within [member interact_range]. Everything in the
+## "interactables" group has prompt_text() and interact(cultivator).
+func _nearest_interactable() -> Node3D:
+	var best: Node3D = null
 	var best_distance := interact_range
-	for node in get_tree().get_nodes_in_group("npcs"):
-		var npc := node as Npc
-		if npc == null:
+	for node in get_tree().get_nodes_in_group("interactables"):
+		var target := node as Node3D
+		if target == null:
 			continue
-		var distance := global_position.distance_to(npc.global_position)
+		var distance := global_position.distance_to(target.global_position)
 		if distance <= best_distance:
-			best = npc
+			best = target
 			best_distance = distance
 	return best
 
 
 func _update_prompt() -> void:
-	var npc := _nearest_npc()
-	var text := npc.prompt_text() if npc != null else ""
+	var target := _nearest_interactable()
+	var text: String = target.prompt_text() if target != null else ""
 	if text != _prompt:
 		_prompt = text
 		prompt_changed.emit(text)
@@ -236,6 +243,7 @@ func _build_body() -> void:
 	var model := model_scene.instantiate() as Node3D
 	_visual.add_child(model)
 	ModelUtils.fit_to_height(model, height)
+	ModelUtils.fix_skinned_normal_maps(model)
 	animator = CharacterAnimator.new(model)
 	animator.play(&"idle")
 

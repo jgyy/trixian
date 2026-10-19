@@ -36,6 +36,34 @@ static func local_bounds(root: Node3D) -> AABB:
 	return merged
 
 
+## Works around a Godot bug in the Compatibility renderer, which is also where Forward+ falls back
+## to when Vulkan is missing. Its skinning pass never binds the TANGENT attribute
+## (drivers/gles3/storage/mesh_storage.cpp, 4.7.2), so every skinned vertex gets the same tangent
+## and a tangent-space normal map is read in the wrong frame: faces break into pale and dark
+## patches along the UV charts. On that renderer the normal maps of skinned meshes are turned off,
+## which leaves the smooth vertex normals and the baked colour. Other renderers keep the maps.
+## Returns how many materials were changed.
+static func fix_skinned_normal_maps(
+	root: Node, rendering_method := RenderingServer.get_current_rendering_method()
+) -> int:
+	if rendering_method != "gl_compatibility":
+		return 0
+	var changed := 0
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := node as MeshInstance3D
+		if mesh_instance.skin == null or mesh_instance.mesh == null:
+			continue
+		for surface in mesh_instance.mesh.get_surface_count():
+			var material := mesh_instance.get_active_material(surface) as BaseMaterial3D
+			if material == null or not material.normal_enabled:
+				continue
+			var copy := material.duplicate() as BaseMaterial3D
+			copy.normal_enabled = false
+			mesh_instance.set_surface_override_material(surface, copy)
+			changed += 1
+	return changed
+
+
 ## Yaw (radians) that turns a model's front towards [param direction] on the XZ plane.
 static func yaw_towards(direction: Vector3) -> float:
 	return atan2(direction.x, direction.z) + FORWARD_OFFSET

@@ -17,10 +17,14 @@ const SHOTS: Array = [
 	["player_running", "_setup_running", 50],
 	["player_slash", "_setup_slash", 16],
 	["wolf_charge", "_setup_wolf", 70],
+	["moon_lotus", "_setup_lotus", 30],
+	["wolf_alpha", "_setup_alpha", 45],
 ]
 const WOLF_STAGE := Vector3(12.0, 0.0, 12.0)
 ## Where the side-on camera sits, relative to the middle of the cultivator and the wolf.
 const FIGHT_CAMERA_OFFSET := Vector3(4.5, 1.2, 0.0)
+## The alpha fights behind the hall, so its camera stands on the open, western side instead.
+const ALPHA_CAMERA_OFFSET := Vector3(-5.5, 1.8, 2.5)
 ## How far above the head joint the middle of the face is, and how far in front of it the
 ## close-up camera stands, in metres.
 const FACE_LIFT := 0.06
@@ -31,6 +35,7 @@ var _free_camera: Camera3D
 var _wait := 0
 var _step := -1
 var _following_fight := false
+var _fight_offset := FIGHT_CAMERA_OFFSET
 
 
 func _initialize() -> void:
@@ -147,7 +152,40 @@ func _frame_fight() -> void:
 		):
 			nearest = candidate
 	var middle := (player.global_position + nearest.global_position) * 0.5 + Vector3.UP * 0.7
-	_free_camera.look_at_from_position(middle + FIGHT_CAMERA_OFFSET, middle)
+	_free_camera.look_at_from_position(middle + _fight_offset, middle)
+
+
+## Walks the cultivator up to a moon lotus by the pond, so the gather prompt shows.
+func _setup_lotus() -> void:
+	var player := _find_player()
+	_send_wolves_away(null)
+	var lotus := get_first_node_in_group("herbs") as Node3D
+	player.global_position = lotus.global_position + Vector3(-1.6, 0.0, 1.0)
+	player.velocity = Vector3.ZERO
+	_free_camera.make_current()
+	_free_camera.look_at_from_position(
+		lotus.global_position + Vector3(-1.2, 1.5, 3.8), lotus.global_position + Vector3.UP * 0.7
+	)
+
+
+## Sends the alpha after the cultivator behind the hall, as Elder Wen's second quest does.
+func _setup_alpha() -> void:
+	var player := _find_player()
+	var alpha: SpiritBeast = _main.call("_spawn_alpha")
+	_send_wolves_away(alpha)
+	player.hp = player.max_hp
+	player.global_position = alpha.global_position + Vector3(-2.0, 0.0, 6.0)
+	_free_camera.make_current()
+	_fight_offset = ALPHA_CAMERA_OFFSET
+	_following_fight = true
+	_frame_fight()
+
+
+## Moves every beast but [param keep] to the far side of the valley, out of the shot.
+func _send_wolves_away(keep: Node) -> void:
+	for wolf in get_nodes_in_group("enemies"):
+		if wolf != keep:
+			(wolf as Node3D).global_position = Vector3(40.0, 0.0, 40.0)
 
 
 func _release_inputs() -> void:

@@ -24,8 +24,7 @@ var _hp_bar: ProgressBar
 var _hp_label: Label
 var _qi_bar: ProgressBar
 var _qi_label: Label
-var _quest_title: Label
-var _quest_label: Label
+var _quest_box: VBoxContainer
 var _prompt_panel: PanelContainer
 var _prompt_label: Label
 var _message_panel: PanelContainer
@@ -75,9 +74,27 @@ func update_stats(
 	_vignette.modulate.a = clampf((LOW_HP_RATIO - ratio) / LOW_HP_RATIO, 0.0, 1.0)
 
 
-func set_quest(text: String, complete := false) -> void:
-	_quest_label.text = text
-	_quest_label.add_theme_color_override("font_color", DONE_COLOR if complete else PARCHMENT)
+## Lists the quests in the tracker. Each entry is [title, objective, complete]; a finished
+## quest stays on the list in green until it is replaced.
+func set_quests(entries: Array) -> void:
+	for child in _quest_box.get_children():
+		_quest_box.remove_child(child)
+		child.queue_free()
+	for entry in entries:
+		var title := _make_label(_quest_box, 13)
+		title.text = String(entry[0]).to_upper()
+		title.add_theme_color_override("font_color", GOLD)
+		var objective := _make_label(_quest_box, 17)
+		objective.text = entry[1]
+		objective.add_theme_color_override("font_color", DONE_COLOR if entry[2] else PARCHMENT)
+
+
+## The objective lines in the tracker, top to bottom.
+func quest_lines() -> PackedStringArray:
+	var lines := PackedStringArray()
+	for index in range(1, _quest_box.get_child_count(), 2):
+		lines.append((_quest_box.get_child(index) as Label).text)
+	return lines
 
 
 func set_prompt(text: String) -> void:
@@ -108,12 +125,9 @@ func _build_vitals(panel: PanelContainer) -> void:
 
 
 func _build_quest(panel: PanelContainer) -> void:
-	var box := VBoxContainer.new()
-	panel.add_child(box)
-	_quest_title = _make_label(box, 13)
-	_quest_title.text = "QUEST"
-	_quest_title.add_theme_color_override("font_color", GOLD)
-	_quest_label = _make_label(box, 17)
+	_quest_box = VBoxContainer.new()
+	_quest_box.add_theme_constant_override("separation", 2)
+	panel.add_child(_quest_box)
 
 
 func _make_controls_hint() -> void:
